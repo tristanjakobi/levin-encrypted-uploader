@@ -90,11 +90,16 @@
     "react-native-builder-bob": "^0.40.6",
     "release-it": "^17.10.0",
     "turbo": "^1.10.7",
-    "typescript": "^5.2.2"
+    "typescript": "^5.2.2",
+    "hermes-eslint": "^0.15.0",
+    "@babel/core": "^7.23.0",
+    "@babel/preset-env": "^7.23.0"
   },
   "peerDependencies": {
     "react": "*",
-    "react-native": "*"
+    "react-native": "*",
+    "@babel/core": "*",
+    "@babel/preset-env": "*"
   },
   "workspaces": [
     "example"
