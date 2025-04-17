@@ -1,6 +1,6 @@
 {
   "name": "react-native-levin-encrypted-uploader",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Encrypted, compressed upload and download streaming in the background",
   "source": "./src/index.tsx",
   "main": "./lib/module/index.js",
