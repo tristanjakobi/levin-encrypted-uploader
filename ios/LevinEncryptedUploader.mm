@@ -127,73 +127,66 @@ RCT_EXPORT_METHOD(getFileInfo:(NSString *)path
 RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options
                   resolve:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject) {
+    // First, validate that options exists and is a dictionary
+    if (!options || ![options isKindOfClass:[NSDictionary class]]) {
+        [self sendLog:@"error" module:@"startUpload" message:@"Upload options must be a valid object" error:nil params:options];
+        reject(@"E_INVALID_ARGUMENT", @"Upload options must be a valid object", nil);
+        return;
+    }
+    
     int thisUploadId;
     @synchronized(self.class) {
         thisUploadId = uploadId++;
     }
 
-    NSString *uploadUrl = options[@"url"];
-    __block NSString *fileURI = options[@"path"];
-    NSString *method = options[@"method"] ?: @"POST";
-    NSString *customTransferId = options[@"customTransferId"];
-    NSString *appGroup = options[@"appGroup"];
-    NSDictionary *headers = options[@"headers"];
+    // Safely extract values with validation
+    NSString *uploadUrl = [options objectForKey:@"url"];
+    NSString *fileURI = [options objectForKey:@"path"];
+    NSString *method = [options objectForKey:@"method"] ?: @"POST";
+    NSString *customTransferId = [options objectForKey:@"customTransferId"];
+    NSString *appGroup = [options objectForKey:@"appGroup"];
+    NSDictionary *headers = [options objectForKey:@"headers"];
     
-    // Add safety check for options
-    if (!options) {
-        reject(@"E_INVALID_ARGUMENT", @"Options dictionary is nil", nil);
+    // Validate encryption dictionary first before trying to access its properties
+    id encryptionObj = [options objectForKey:@"encryption"];
+    if (!encryptionObj || ![encryptionObj isKindOfClass:[NSDictionary class]]) {
+        [self sendLog:@"error" module:@"startUpload" message:@"Missing or invalid encryption data" error:nil params:options];
+        reject(@"E_INVALID_ARGUMENT", @"Missing or invalid encryption data", nil);
         return;
     }
     
-    // Add safety check for encryption
-    NSDictionary *encryption = options[@"encryption"];
-    if (!encryption) {
-        [self sendLog:@"error" module:@"startUpload" message:@"Missing encryption data" error:nil params:options];
-        reject(@"E_INVALID_ARGUMENT", @"Missing encryption data", nil);
-        return;
-    }
-    
-    if (![encryption isKindOfClass:[NSDictionary class]]) {
-        [self sendLog:@"error" module:@"startUpload" message:@"Encryption data must be an object" error:nil params:@{@"encryption": encryption}];
-        reject(@"E_INVALID_ARGUMENT", @"Encryption data must be an object", nil);
-        return;
-    }
-    
-    NSString *base64Key = encryption[@"key"];
-    NSString *base64Nonce = encryption[@"nonce"];
-    
-    if (!base64Key) {
-        [self sendLog:@"error" module:@"startUpload" message:@"Missing encryption key" error:nil params:encryption];
-        reject(@"E_INVALID_ARGUMENT", @"Missing encryption key", nil);
-        return;
-    }
-    
-    if (!base64Nonce) {
-        [self sendLog:@"error" module:@"startUpload" message:@"Missing encryption nonce" error:nil params:encryption];
-        reject(@"E_INVALID_ARGUMENT", @"Missing encryption nonce", nil);
-        return;
-    }
+    NSDictionary *encryption = (NSDictionary *)encryptionObj;
+    NSString *base64Key = [encryption objectForKey:@"key"];
+    NSString *base64Nonce = [encryption objectForKey:@"nonce"];
 
-    if (!uploadUrl || !fileURI || !base64Key || !base64Nonce) {
-        [self sendLog:@"error" module:@"startUpload" message:@"Missing required parameters" error:nil params:@{
+    // Validate all required parameters
+    if (!uploadUrl || !fileURI) {
+        [self sendLog:@"error" module:@"startUpload" message:@"Missing required URL or file path" error:nil params:@{
             @"hasUrl": @(uploadUrl != nil),
-            @"hasFileURI": @(fileURI != nil),
+            @"hasFileURI": @(fileURI != nil)
+        }];
+        reject(@"E_INVALID_ARGUMENT", @"Missing required URL or file path", nil);
+        return;
+    }
+    
+    if (!base64Key || !base64Nonce) {
+        [self sendLog:@"error" module:@"startUpload" message:@"Missing encryption key or nonce" error:nil params:@{
             @"hasKey": @(base64Key != nil),
             @"hasNonce": @(base64Nonce != nil)
         }];
-        reject(@"E_INVALID_ARGUMENT", @"Missing required parameters", nil);
+        reject(@"E_INVALID_ARGUMENT", @"Missing encryption key or nonce", nil);
         return;
     }
 
     NSData *keyData = [[NSData alloc] initWithBase64EncodedString:base64Key options:0];
     NSData *nonceData = [[NSData alloc] initWithBase64EncodedString:base64Nonce options:0];
-
+    
     if (!keyData || !nonceData) {
         [self sendLog:@"error" module:@"startUpload" message:@"Failed to decode encryption parameters" error:nil params:@{
             @"keyLength": @(base64Key.length),
             @"nonceLength": @(base64Nonce.length)
         }];
-        reject(@"E_INVALID_ARGUMENT", @"Failed to decode encryption parameters", nil);
+        reject(@"E_INVALID_ARGUMENT", @"Invalid encryption key or nonce format", nil);
         return;
     }
 
@@ -324,28 +317,64 @@ RCT_EXPORT_METHOD(cancelDownload:(NSString *)downloadId
 RCT_EXPORT_METHOD(downloadAndDecrypt:(NSDictionary *)options
                   resolve:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject) {
-    NSString *urlStr = options[@"url"];
-    NSString *destination = options[@"destination"];
-    NSDictionary *encryption = options[@"encryption"];
-    NSString *base64Key = encryption[@"key"];
-    NSString *base64Nonce = encryption[@"nonce"];
-    NSDictionary *headers = options[@"headers"];
+    // Validate options
+    if (!options || ![options isKindOfClass:[NSDictionary class]]) {
+        reject(@"E_INVALID_ARGUMENT", @"Download options must be a valid object", nil);
+        return;
+    }
+    
+    NSString *urlStr = [options objectForKey:@"url"];
+    NSString *destination = [options objectForKey:@"destination"];
+    
+    // Validate encryption dictionary
+    id encryptionObj = [options objectForKey:@"encryption"];
+    if (!encryptionObj || ![encryptionObj isKindOfClass:[NSDictionary class]]) {
+        reject(@"E_INVALID_ARGUMENT", @"Missing or invalid encryption data", nil);
+        return;
+    }
+    
+    NSDictionary *encryption = (NSDictionary *)encryptionObj;
+    NSString *base64Key = [encryption objectForKey:@"key"];
+    NSString *base64Nonce = [encryption objectForKey:@"nonce"];
+    NSDictionary *headers = [options objectForKey:@"headers"];
 
-    if (!urlStr || !destination || !base64Key || !base64Nonce) {
-        reject(@"invalid_args", @"Missing required parameters", nil);
+    if (!urlStr || !destination) {
+        reject(@"E_INVALID_ARGUMENT", @"Missing required URL or destination path", nil);
+        return;
+    }
+
+    if (!base64Key || !base64Nonce) {
+        reject(@"E_INVALID_ARGUMENT", @"Missing encryption key or nonce", nil);
         return;
     }
 
     NSData *keyData = [[NSData alloc] initWithBase64EncodedString:base64Key options:0];
     NSData *nonceData = [[NSData alloc] initWithBase64EncodedString:base64Nonce options:0];
+    
+    if (!keyData || !nonceData) {
+        reject(@"E_INVALID_ARGUMENT", @"Invalid encryption key or nonce format", nil);
+        return;
+    }
+    
     NSURL *url = [NSURL URLWithString:urlStr];
     
     if (!url) {
-        reject(@"invalid_args", @"Invalid URL", nil);
+        reject(@"E_INVALID_ARGUMENT", @"Invalid URL", nil);
         return;
     }
 
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    
+    if (headers && [headers isKindOfClass:[NSDictionary class]]) {
+        [headers enumerateKeysAndObjectsUsingBlock:^(id key, id val, BOOL *stop) {
+            if ([val respondsToSelector:@selector(stringValue)]) {
+                val = [val stringValue];
+            }
+            if ([val isKindOfClass:[NSString class]]) {
+                [request setValue:val forHTTPHeaderField:key];
+            }
+        }];
+    }
     
     if (headers) {
         [headers enumerateKeysAndObjectsUsingBlock:^(id key, id val, BOOL *stop) {
