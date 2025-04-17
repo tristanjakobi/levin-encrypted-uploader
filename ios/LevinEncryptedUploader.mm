@@ -138,25 +138,23 @@ RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options
     NSString *customTransferId = options[@"customTransferId"];
     NSString *appGroup = options[@"appGroup"];
     NSDictionary *headers = options[@"headers"];
-    NSDictionary *encryption = options[@"encryption"];
     
-    // Add detailed error logging
+    // Add safety check for options
+    if (!options) {
+        reject(@"E_INVALID_ARGUMENT", @"Options dictionary is nil", nil);
+        return;
+    }
+    
+    // Add safety check for encryption
+    NSDictionary *encryption = options[@"encryption"];
     if (!encryption) {
-        [self sendLog:@"error" 
-              module:@"LevinEncryptedUploader" 
-             message:@"Missing encryption object" 
-               error:nil 
-              params:@{@"options": options ?: @{}}];
+        [self sendLog:@"error" module:@"startUpload" message:@"Missing encryption data" error:nil params:options];
         reject(@"E_INVALID_ARGUMENT", @"Missing encryption data", nil);
         return;
     }
     
     if (![encryption isKindOfClass:[NSDictionary class]]) {
-        [self sendLog:@"error" 
-              module:@"LevinEncryptedUploader" 
-             message:@"Invalid encryption object type" 
-               error:nil 
-              params:@{@"encryption": encryption ?: @{}}];
+        [self sendLog:@"error" module:@"startUpload" message:@"Encryption data must be an object" error:nil params:@{@"encryption": encryption}];
         reject(@"E_INVALID_ARGUMENT", @"Encryption data must be an object", nil);
         return;
     }
@@ -165,32 +163,39 @@ RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options
     NSString *base64Nonce = encryption[@"nonce"];
     
     if (!base64Key) {
-        [self sendLog:@"error" 
-              module:@"LevinEncryptedUploader" 
-             message:@"Missing encryption key" 
-               error:nil 
-              params:@{@"encryption": encryption}];
+        [self sendLog:@"error" module:@"startUpload" message:@"Missing encryption key" error:nil params:encryption];
         reject(@"E_INVALID_ARGUMENT", @"Missing encryption key", nil);
         return;
     }
     
     if (!base64Nonce) {
-        [self sendLog:@"error" 
-              module:@"LevinEncryptedUploader" 
-             message:@"Missing encryption nonce" 
-               error:nil 
-              params:@{@"encryption": encryption}];
+        [self sendLog:@"error" module:@"startUpload" message:@"Missing encryption nonce" error:nil params:encryption];
         reject(@"E_INVALID_ARGUMENT", @"Missing encryption nonce", nil);
         return;
     }
 
     if (!uploadUrl || !fileURI || !base64Key || !base64Nonce) {
+        [self sendLog:@"error" module:@"startUpload" message:@"Missing required parameters" error:nil params:@{
+            @"hasUrl": @(uploadUrl != nil),
+            @"hasFileURI": @(fileURI != nil),
+            @"hasKey": @(base64Key != nil),
+            @"hasNonce": @(base64Nonce != nil)
+        }];
         reject(@"E_INVALID_ARGUMENT", @"Missing required parameters", nil);
         return;
     }
 
     NSData *keyData = [[NSData alloc] initWithBase64EncodedString:base64Key options:0];
     NSData *nonceData = [[NSData alloc] initWithBase64EncodedString:base64Nonce options:0];
+
+    if (!keyData || !nonceData) {
+        [self sendLog:@"error" module:@"startUpload" message:@"Failed to decode encryption parameters" error:nil params:@{
+            @"keyLength": @(base64Key.length),
+            @"nonceLength": @(base64Nonce.length)
+        }];
+        reject(@"E_INVALID_ARGUMENT", @"Failed to decode encryption parameters", nil);
+        return;
+    }
 
     @try {
         NSURL *requestUrl = [NSURL URLWithString:uploadUrl];
