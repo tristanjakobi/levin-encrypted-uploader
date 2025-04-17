@@ -382,6 +382,7 @@ didCompleteWithError:(NSError *)error {
     NSString *taskId = task.taskDescription;
     if (!taskId) return;
     
+    // Handle upload stream cleanup
     NSInputStream *stream = self.uploadStreams[taskId];
     if (stream) {
         [stream close];
@@ -389,20 +390,32 @@ didCompleteWithError:(NSError *)error {
     }
     
     NSMutableDictionary *data = [NSMutableDictionary dictionaryWithObjectsAndKeys:taskId, @"id", nil];
-    NSURLSessionDataTask *uploadTask = (NSURLSessionDataTask *)task;
-    NSHTTPURLResponse *response = (NSHTTPURLResponse *)uploadTask.response;
     
-    if (response != nil) {
-        [data setObject:[NSNumber numberWithInteger:response.statusCode] forKey:@"responseCode"];
+    // Handle response data for upload tasks
+    if ([task isKindOfClass:[NSURLSessionDataTask class]]) {
+        NSURLSessionDataTask *uploadTask = (NSURLSessionDataTask *)task;
+        NSHTTPURLResponse *response = (NSHTTPURLResponse *)uploadTask.response;
+        
+        if (response != nil) {
+            [data setObject:[NSNumber numberWithInteger:response.statusCode] forKey:@"responseCode"];
+        }
+        
+        NSMutableData *responseData = _responsesData[@(task.taskIdentifier)];
+        if (responseData) {
+            [_responsesData removeObjectForKey:@(task.taskIdentifier)];
+            NSString *response = [[NSString alloc] initWithData:responseData encoding:NSUTF8StringEncoding];
+            [data setObject:response forKey:@"responseBody"];
+        } else {
+            [data setObject:[NSNull null] forKey:@"responseBody"];
+        }
     }
     
-    NSMutableData *responseData = _responsesData[@(task.taskIdentifier)];
-    if (responseData) {
-        [_responsesData removeObjectForKey:@(task.taskIdentifier)];
-        NSString *response = [[NSString alloc] initWithData:responseData encoding:NSUTF8StringEncoding];
-        [data setObject:response forKey:@"responseBody"];
-    } else {
-        [data setObject:[NSNull null] forKey:@"responseBody"];
+    // Handle response code for download tasks
+    if ([task isKindOfClass:[NSURLSessionDownloadTask class]]) {
+        NSHTTPURLResponse *response = (NSHTTPURLResponse *)task.response;
+        if (response != nil) {
+            [data setObject:[NSNumber numberWithInteger:response.statusCode] forKey:@"responseCode"];
+        }
     }
 
     if (error == nil) {
@@ -416,7 +429,9 @@ didCompleteWithError:(NSError *)error {
         }
     }
     
+    // Clean up task references
     [self.uploadTasks removeObjectForKey:taskId];
+    [self.downloadTasks removeObjectForKey:taskId];
 }
 
 - (void)URLSession:(NSURLSession *)session
@@ -511,26 +526,6 @@ totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite {
     
     [self _sendEventWithName:@"levin-encrypted-uploader-progress" 
                        body:@{ @"id": downloadTask.taskDescription, @"progress": [NSNumber numberWithFloat:progress] }];
-}
-
-- (void)URLSession:(NSURLSession *)session
-              task:(NSURLSessionTask *)task
-didCompleteWithError:(NSError *)error {
-    NSString *taskId = task.taskDescription;
-    if (!taskId) return;
-    
-    NSMutableDictionary *data = [NSMutableDictionary dictionaryWithObjectsAndKeys:taskId, @"id", nil];
-    
-    if (error) {
-        [data setObject:error.localizedDescription forKey:@"error"];
-        if (error.code == NSURLErrorCancelled) {
-            [self _sendEventWithName:@"levin-encrypted-uploader-cancelled" body:data];
-        } else {
-            [self _sendEventWithName:@"levin-encrypted-uploader-error" body:data];
-        }
-    }
-    
-    [self.downloadTasks removeObjectForKey:taskId];
 }
 
 - (std::shared_ptr<facebook::react::TurboModule>)getTurboModule:
