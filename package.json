@@ -1,6 +1,6 @@
 {
   "name": "react-native-levin-encrypted-uploader",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Encrypted, compressed upload and download streaming in the background. Based on and inspired by react-native-background-upload (https://github.com/Vydia/react-native-background-upload/)",
   "source": "./src/index.tsx",
   "main": "./lib/module/index.js",
