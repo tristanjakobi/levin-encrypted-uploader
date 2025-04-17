@@ -9,12 +9,13 @@
 #import <React/RCTEventEmitter.h>
 #import <LevinEncryptedUploader/RNLevinEncryptedUploaderSpec.h>
 
-@interface LevinEncryptedUploader : RCTEventEmitter <NativeLevinEncryptedUploaderSpec, NSURLSessionTaskDelegate>
+@interface LevinEncryptedUploader : RCTEventEmitter <NativeLevinEncryptedUploaderSpec, NSURLSessionTaskDelegate, NSURLSessionDataDelegate, NSURLSessionDownloadDelegate>
 {
   NSMutableDictionary *_responsesData;
 }
 @property (nonatomic, strong) NSURLSession *session;
 @property (nonatomic, strong) NSMutableDictionary *uploadTasks;
 @property (nonatomic, strong) NSMutableDictionary *downloadTasks;
+@property (nonatomic, strong) NSMutableDictionary *uploadStreams;
 @end
 

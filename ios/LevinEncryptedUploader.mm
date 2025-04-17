@@ -188,13 +188,11 @@ RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options
             return reject(@"RN Uploader", @"Failed to create encrypted input stream", nil);
         }
         
-        [encryptedStream retain];
         [request setHTTPBodyStream:encryptedStream];
 
         NSURLSessionDataTask *uploadTask = [[self urlSession:appGroup] uploadTaskWithStreamedRequest:request];
         NSString *taskId = customTransferId ? customTransferId : [NSString stringWithFormat:@"%i", thisUploadId];
         uploadTask.taskDescription = taskId;
-        
         self.uploadTasks[taskId] = uploadTask;
         self.uploadStreams[taskId] = encryptedStream;
 
@@ -365,7 +363,6 @@ RCT_EXPORT_METHOD(downloadAndDecrypt:(NSDictionary *)options
         NSError *writeErr = nil;
         BOOL ok = [stream writeData:data error:&writeErr];
         [stream close];
-        [stream release];
 
         if (!ok) {
             reject(@"decryption_failed", writeErr.localizedDescription, writeErr);
@@ -383,10 +380,11 @@ RCT_EXPORT_METHOD(downloadAndDecrypt:(NSDictionary *)options
               task:(NSURLSessionTask *)task
 didCompleteWithError:(NSError *)error {
     NSString *taskId = task.taskDescription;
+    if (!taskId) return;
+    
     NSInputStream *stream = self.uploadStreams[taskId];
     if (stream) {
         [stream close];
-        [stream release];
         [self.uploadStreams removeObjectForKey:taskId];
     }
     
@@ -403,7 +401,6 @@ didCompleteWithError:(NSError *)error {
         [_responsesData removeObjectForKey:@(task.taskIdentifier)];
         NSString *response = [[NSString alloc] initWithData:responseData encoding:NSUTF8StringEncoding];
         [data setObject:response forKey:@"responseBody"];
-        [response release];
     } else {
         [data setObject:[NSNull null] forKey:@"responseBody"];
     }
