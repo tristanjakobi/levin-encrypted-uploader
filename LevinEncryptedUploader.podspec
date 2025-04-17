@@ -16,7 +16,5 @@ Pod::Spec.new do |s|
   s.source_files = "ios/**/*.{h,m,mm}"
   s.requires_arc = true
 
-  s.dependency "React-Core"
-  s.dependency "React-RCTRequired"
-  s.dependency "React-RCTTypeSafety"
+   s.dependency "React"
 end
