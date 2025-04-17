@@ -211,16 +211,20 @@ RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options
         if ([fileURI hasPrefix:@"assets-library"]) {
             dispatch_group_t group = dispatch_group_create();
             dispatch_group_enter(group);
+            __block NSString *tempFileURI = nil;
             [self copyAssetToFile:fileURI completionHandler:^(NSString *tempFileUrl, NSError *error) {
                 if (error) {
                     dispatch_group_leave(group);
                     reject(@"RN Uploader", @"Asset could not be copied to temp file.", nil);
                     return;
                 }
-                fileURI = tempFileUrl;
+                tempFileURI = tempFileUrl;
                 dispatch_group_leave(group);
             }];
             dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
+            if (tempFileURI) {
+                fileURI = tempFileURI;
+            }
         }
 
         NSInputStream *encryptedStream = [self encryptedInputStreamFromFile:fileURI key:keyData nonce:nonceData];
