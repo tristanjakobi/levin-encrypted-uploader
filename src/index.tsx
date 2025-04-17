@@ -1,5 +1,11 @@
 import LevinEncryptedUploader from './NativeLevinEncryptedUploader';
 
-export function multiply(a: number, b: number): number {
-  return LevinEncryptedUploader.multiply(a, b);
-}
+export default LevinEncryptedUploader;
+
+// Re-export types for convenience
+export type {
+  FileInfo,
+  UploadOptions,
+  DownloadOptions,
+  DownloadAndDecryptOptions,
+} from './NativeLevinEncryptedUploader';

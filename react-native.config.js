@@ -4,8 +4,11 @@
 module.exports = {
   dependency: {
     platforms: {
+      ios: {
+        project: './ios/LevinEncryptedUploader.xcodeproj',
+      },
       android: {
-        cmakeListsPath: 'generated/jni/CMakeLists.txt',
+        sourceDir: './android',
       },
     },
   },

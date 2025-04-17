@@ -3,10 +3,442 @@
 @implementation LevinEncryptedUploader
 RCT_EXPORT_MODULE()
 
-- (NSNumber *)multiply:(double)a b:(double)b {
-    NSNumber *result = @(a * b);
+static NSString *BACKGROUND_SESSION_ID = @"levin-encrypted-uploader";
+static int uploadId = 0;
+static LevinEncryptedUploader* staticEventEmitter = nil;
 
-    return result;
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        staticEventEmitter = self;
+        _responsesData = [NSMutableDictionary dictionary];
+        self.uploadTasks = [NSMutableDictionary dictionary];
+        self.downloadTasks = [NSMutableDictionary dictionary];
+    }
+    return self;
+}
+
+- (void)invalidate {
+    [super invalidate];
+    staticEventEmitter = nil;
+}
+
+- (NSArray<NSString *> *)supportedEvents {
+    return @[
+        @"levin-encrypted-uploader-progress",
+        @"levin-encrypted-uploader-error",
+        @"levin-encrypted-uploader-cancelled",
+        @"levin-encrypted-uploader-completed",
+        @"levin-encrypted-uploader-log"
+    ];
+}
+
+- (void)_sendEventWithName:(NSString *)eventName body:(id)body {
+    if (staticEventEmitter == nil) return;
+    [staticEventEmitter sendEventWithName:eventName body:body];
+}
+
+- (void)sendLog:(NSString *)level 
+         module:(NSString *)module 
+        message:(NSString *)message 
+          error:(NSError * _Nullable)error 
+         params:(NSDictionary * _Nullable)params {
+    NSMutableDictionary *logData = [NSMutableDictionary dictionary];
+    logData[@"level"] = level;
+    logData[@"module"] = module;
+    logData[@"message"] = message;
+    
+    if (error) {
+        logData[@"error"] = error.localizedDescription;
+        if (error.userInfo) {
+            logData[@"errorInfo"] = error.userInfo;
+        }
+    }
+    
+    if (params) {
+        logData[@"params"] = params;
+    }
+    
+    [self _sendEventWithName:@"levin-encrypted-uploader-log" body:logData];
+}
+
+- (NSString *)guessMIMETypeFromFileName:(NSString *)fileName {
+    CFStringRef UTI = UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, (__bridge CFStringRef)[fileName pathExtension], NULL);
+    CFStringRef MIMEType = UTTypeCopyPreferredTagWithClass(UTI, kUTTagClassMIMEType);
+    
+    if (UTI) {
+        CFRelease(UTI);
+    }
+  
+    if (!MIMEType) {
+        return @"application/octet-stream";
+    }
+    return (__bridge NSString *)(MIMEType);
+}
+
+- (NSURLSession *)urlSession:(NSString *)groupId {
+    if (_session == nil) {
+        NSURLSessionConfiguration *sessionConfiguration = [NSURLSessionConfiguration backgroundSessionConfigurationWithIdentifier:BACKGROUND_SESSION_ID];
+        if (groupId != nil && ![groupId isEqualToString:@""]) {
+            sessionConfiguration.sharedContainerIdentifier = groupId;
+        }
+        _session = [NSURLSession sessionWithConfiguration:sessionConfiguration delegate:self delegateQueue:nil];
+    }
+    return _session;
+}
+
+- (NSInputStream *)encryptedInputStreamFromFile:(NSString *)fileURI key:(NSData *)key nonce:(NSData *)nonce {
+    NSURL *fileURL = [NSURL URLWithString:fileURI];
+    NSInputStream *inputStream = [NSInputStream inputStreamWithURL:fileURL];
+    return [[EncryptedInputStream alloc] initWithInputStream:inputStream key:key nonce:nonce];
+}
+
+RCT_EXPORT_METHOD(getFileInfo:(NSString *)path
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+    @try {
+        NSString *escapedPath = [path stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLQueryAllowedCharacterSet];
+        NSURL *fileUri = [NSURL URLWithString:escapedPath];
+        NSString *pathWithoutProtocol = [fileUri path];
+        NSString *name = [fileUri lastPathComponent];
+        NSString *extension = [name pathExtension];
+        bool exists = [[NSFileManager defaultManager] fileExistsAtPath:pathWithoutProtocol];
+        NSMutableDictionary *params = [NSMutableDictionary dictionaryWithObjectsAndKeys:name, @"name", nil];
+        [params setObject:extension forKey:@"extension"];
+        [params setObject:[NSNumber numberWithBool:exists] forKey:@"exists"];
+
+        if (exists) {
+            [params setObject:[self guessMIMETypeFromFileName:name] forKey:@"mimeType"];
+            NSError* error;
+            NSDictionary<NSFileAttributeKey, id> *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:pathWithoutProtocol error:&error];
+            if (error == nil) {
+                unsigned long long fileSize = [attributes fileSize];
+                [params setObject:[NSNumber numberWithLong:fileSize] forKey:@"size"];
+            }
+        }
+        resolve(params);
+    }
+    @catch (NSException *exception) {
+        reject(@"RN Uploader", exception.name, nil);
+    }
+}
+
+RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+    int thisUploadId;
+    @synchronized(self.class) {
+        thisUploadId = uploadId++;
+    }
+
+    NSString *uploadUrl = options[@"url"];
+    __block NSString *fileURI = options[@"path"];
+    NSString *method = options[@"method"] ?: @"POST";
+    NSString *customTransferId = options[@"customTransferId"];
+    NSString *appGroup = options[@"appGroup"];
+    NSDictionary *headers = options[@"headers"];
+    NSDictionary *encryption = options[@"encryption"];
+    NSString *base64Key = encryption[@"key"];
+    NSString *base64Nonce = encryption[@"nonce"];
+
+    NSData *keyData = [[NSData alloc] initWithBase64EncodedString:base64Key options:0];
+    NSData *nonceData = [[NSData alloc] initWithBase64EncodedString:base64Nonce options:0];
+
+    @try {
+        NSURL *requestUrl = [NSURL URLWithString:uploadUrl];
+        if (requestUrl == nil) {
+            return reject(@"RN Uploader", @"URL not compliant with RFC 2396", nil);
+        }
+
+        NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:requestUrl];
+        [request setHTTPMethod:method];
+
+        [headers enumerateKeysAndObjectsUsingBlock:^(id key, id val, BOOL *stop) {
+            if ([val respondsToSelector:@selector(stringValue)]) {
+                val = [val stringValue];
+            }
+            if ([val isKindOfClass:[NSString class]]) {
+                [request setValue:val forHTTPHeaderField:key];
+            }
+        }];
+
+        if ([fileURI hasPrefix:@"assets-library"]) {
+            dispatch_group_t group = dispatch_group_create();
+            dispatch_group_enter(group);
+            [self copyAssetToFile:fileURI completionHandler:^(NSString *tempFileUrl, NSError *error) {
+                if (error) {
+                    dispatch_group_leave(group);
+                    reject(@"RN Uploader", @"Asset could not be copied to temp file.", nil);
+                    return;
+                }
+                fileURI = tempFileUrl;
+                dispatch_group_leave(group);
+            }];
+            dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
+        }
+
+        NSInputStream *encryptedStream = [self encryptedInputStreamFromFile:fileURI key:keyData nonce:nonceData];
+        if (!encryptedStream) {
+            return reject(@"RN Uploader", @"Failed to create encrypted input stream", nil);
+        }
+        
+        [request setHTTPBodyStream:encryptedStream];
+
+        NSURLSessionDataTask *uploadTask = [[self urlSession:appGroup] uploadTaskWithStreamedRequest:request];
+        uploadTask.taskDescription = customTransferId ? customTransferId : [NSString stringWithFormat:@"%i", thisUploadId];
+        self.uploadTasks[uploadTask.taskDescription] = uploadTask;
+
+        [uploadTask resume];
+        resolve(uploadTask.taskDescription);
+    }
+    @catch (NSException *exception) {
+        reject(@"RN Uploader", exception.name, nil);
+    }
+}
+
+RCT_EXPORT_METHOD(cancelUpload:(NSString *)uploadId
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+    NSURLSessionUploadTask *task = self.uploadTasks[uploadId];
+    if (task) {
+        [task cancel];
+        [self.uploadTasks removeObjectForKey:uploadId];
+        resolve(@YES);
+    } else {
+        reject(@"E_INVALID_ARGUMENT", @"Invalid upload ID", nil);
+    }
+}
+
+RCT_EXPORT_METHOD(startDownload:(NSDictionary *)options
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+    NSString *url = options[@"url"];
+    NSString *path = options[@"path"];
+    NSString *method = options[@"method"] ?: @"GET";
+    NSString *customTransferId = options[@"customTransferId"];
+    NSString *appGroup = options[@"appGroup"];
+    NSDictionary *headers = options[@"headers"];
+    
+    if (!url || !path) {
+        reject(@"E_INVALID_ARGUMENT", @"URL and path are required", nil);
+        return;
+    }
+    
+    NSURL *downloadURL = [NSURL URLWithString:url];
+    
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:downloadURL];
+    [request setHTTPMethod:method];
+    
+    if (headers) {
+        [headers enumerateKeysAndObjectsUsingBlock:^(id key, id value, BOOL *stop) {
+            if ([value respondsToSelector:@selector(stringValue)]) {
+                value = [value stringValue];
+            }
+            if ([value isKindOfClass:[NSString class]]) {
+                [request setValue:value forHTTPHeaderField:key];
+            }
+        }];
+    }
+    
+    NSURLSessionDownloadTask *task = [[self urlSession:appGroup] downloadTaskWithRequest:request];
+    NSString *taskId = customTransferId ? customTransferId : [[NSUUID UUID] UUIDString];
+    task.taskDescription = taskId;
+    self.downloadTasks[taskId] = task;
+    
+    [task resume];
+    resolve(taskId);
+}
+
+RCT_EXPORT_METHOD(cancelDownload:(NSString *)downloadId
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+    NSURLSessionDownloadTask *task = self.downloadTasks[downloadId];
+    if (task) {
+        [task cancel];
+        [self.downloadTasks removeObjectForKey:downloadId];
+        resolve(@YES);
+    } else {
+        reject(@"E_INVALID_ARGUMENT", @"Invalid download ID", nil);
+    }
+}
+
+RCT_EXPORT_METHOD(downloadAndDecrypt:(NSDictionary *)options
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+    NSString *urlStr = options[@"url"];
+    NSString *destination = options[@"destination"];
+    NSDictionary *encryption = options[@"encryption"];
+    NSString *base64Key = encryption[@"key"];
+    NSString *base64Nonce = encryption[@"nonce"];
+    NSDictionary *headers = options[@"headers"];
+
+    if (!urlStr || !destination || !base64Key || !base64Nonce) {
+        reject(@"invalid_args", @"Missing required parameters", nil);
+        return;
+    }
+
+    NSData *keyData = [[NSData alloc] initWithBase64EncodedString:base64Key options:0];
+    NSData *nonceData = [[NSData alloc] initWithBase64EncodedString:base64Nonce options:0];
+    NSURL *url = [NSURL URLWithString:urlStr];
+
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    
+    if (headers) {
+        [headers enumerateKeysAndObjectsUsingBlock:^(id key, id val, BOOL *stop) {
+            if ([val respondsToSelector:@selector(stringValue)]) {
+                val = [val stringValue];
+            }
+            if ([val isKindOfClass:[NSString class]]) {
+                [request setValue:val forHTTPHeaderField:key];
+            }
+        }];
+    }
+
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession]
+      dataTaskWithRequest:request
+      completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (error) {
+            reject(@"download_failed", error.localizedDescription, error);
+            return;
+        }
+
+        NSURL *destinationURL;
+        if ([destination hasPrefix:@"file://"]) {
+            destinationURL = [NSURL URLWithString:destination];
+        } else {
+            destinationURL = [NSURL fileURLWithPath:destination];
+        }
+        NSString *cleanedPath = [destinationURL path];
+        cleanedPath = [cleanedPath stringByRemovingPercentEncoding];
+
+        NSFileManager *fileManager = [NSFileManager defaultManager];
+        NSString *directory = [cleanedPath stringByDeletingLastPathComponent];
+        
+        NSError *dirError = nil;
+        [fileManager createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:&dirError];
+        if (dirError) {
+            reject(@"directory_creation_failed", dirError.localizedDescription, dirError);
+            return;
+        }
+
+        EncryptedOutputStream *stream = [[EncryptedOutputStream alloc] initWithFilePath:cleanedPath
+                                                                                     key:keyData
+                                                                                   nonce:nonceData];
+        
+        if (!stream) {
+            reject(@"stream_creation_failed", @"Failed to create output stream", nil);
+            return;
+        }
+
+        NSError *writeErr = nil;
+        BOOL ok = [stream writeData:data error:&writeErr];
+        [stream close];
+
+        if (!ok) {
+            reject(@"decryption_failed", writeErr.localizedDescription, writeErr);
+        } else {
+            resolve(@{ @"path": destination });
+        }
+    }];
+
+    [task resume];
+}
+
+#pragma mark - NSURLSessionTaskDelegate
+
+- (void)URLSession:(NSURLSession *)session
+              task:(NSURLSessionTask *)task
+didCompleteWithError:(NSError *)error {
+    NSMutableDictionary *data = [NSMutableDictionary dictionaryWithObjectsAndKeys:task.taskDescription, @"id", nil];
+    NSURLSessionDataTask *uploadTask = (NSURLSessionDataTask *)task;
+    NSHTTPURLResponse *response = (NSHTTPURLResponse *)uploadTask.response;
+    
+    if (response != nil) {
+        [data setObject:[NSNumber numberWithInteger:response.statusCode] forKey:@"responseCode"];
+    }
+    
+    NSMutableData *responseData = _responsesData[@(task.taskIdentifier)];
+    if (responseData) {
+        [_responsesData removeObjectForKey:@(task.taskIdentifier)];
+        NSString *response = [[NSString alloc] initWithData:responseData encoding:NSUTF8StringEncoding];
+        [data setObject:response forKey:@"responseBody"];
+    } else {
+        [data setObject:[NSNull null] forKey:@"responseBody"];
+    }
+
+    if (error == nil) {
+        [self _sendEventWithName:@"levin-encrypted-uploader-completed" body:data];
+    } else {
+        [data setObject:error.localizedDescription forKey:@"error"];
+        if (error.code == NSURLErrorCancelled) {
+            [self _sendEventWithName:@"levin-encrypted-uploader-cancelled" body:data];
+        } else {
+            [self _sendEventWithName:@"levin-encrypted-uploader-error" body:data];
+        }
+    }
+}
+
+- (void)URLSession:(NSURLSession *)session
+              task:(NSURLSessionTask *)task
+   didSendBodyData:(int64_t)bytesSent
+    totalBytesSent:(int64_t)totalBytesSent
+totalBytesExpectedToSend:(int64_t)totalBytesExpectedToSend {
+    float progress = -1;
+    if (totalBytesExpectedToSend > 0) {
+        progress = 100.0 * (float)totalBytesSent / (float)totalBytesExpectedToSend;
+    }
+    
+    [self _sendEventWithName:@"levin-encrypted-uploader-progress" 
+                       body:@{ @"id": task.taskDescription, @"progress": [NSNumber numberWithFloat:progress] }];
+}
+
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveData:(NSData *)data {
+    if (!data.length) {
+        return;
+    }
+    NSMutableData *responseData = _responsesData[@(dataTask.taskIdentifier)];
+    if (!responseData) {
+        responseData = [NSMutableData dataWithData:data];
+        _responsesData[@(dataTask.taskIdentifier)] = responseData;
+    } else {
+        [responseData appendData:data];
+    }
+}
+
+- (void)URLSession:(NSURLSession *)session
+              task:(NSURLSessionTask *)task
+ needNewBodyStream:(void (^)(NSInputStream *bodyStream))completionHandler {
+    NSInputStream *inputStream = task.originalRequest.HTTPBodyStream;
+    if (completionHandler) {
+        completionHandler(inputStream);
+    }
+}
+
+- (void)copyAssetToFile:(NSString *)assetUrl completionHandler:(void(^)(NSString *__nullable tempFileUrl, NSError *__nullable error))completionHandler {
+    NSURL *url = [NSURL URLWithString:assetUrl];
+    PHAsset *asset = [PHAsset fetchAssetsWithALAssetURLs:@[url] options:nil].lastObject;
+    if (!asset) {
+        NSMutableDictionary* details = [NSMutableDictionary dictionary];
+        [details setValue:@"Asset could not be fetched.  Are you missing permissions?" forKey:NSLocalizedDescriptionKey];
+        completionHandler(nil, [NSError errorWithDomain:@"RNUploader" code:5 userInfo:details]);
+        return;
+    }
+    PHAssetResource *assetResource = [[PHAssetResource assetResourcesForAsset:asset] firstObject];
+    NSString *pathToWrite = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+    NSURL *pathUrl = [NSURL fileURLWithPath:pathToWrite];
+    NSString *fileURI = pathUrl.absoluteString;
+
+    PHAssetResourceRequestOptions *options = [PHAssetResourceRequestOptions new];
+    options.networkAccessAllowed = YES;
+
+    [[PHAssetResourceManager defaultManager] writeDataForAssetResource:assetResource toFile:pathUrl options:options completionHandler:^(NSError * _Nullable e) {
+        if (e == nil) {
+            completionHandler(fileURI, nil);
+        }
+        else {
+            completionHandler(nil, e);
+        }
+    }];
 }
 
 - (std::shared_ptr<facebook::react::TurboModule>)getTurboModule:
