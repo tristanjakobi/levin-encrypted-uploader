@@ -14,10 +14,8 @@ export interface UploadOptions {
   path: string;
   method?: string;
   headers?: { [key: string]: string };
-  encryption: {
-    key: string;
-    nonce: string;
-  };
+  encryptionKey: string;
+  encryptionNonce: string;
   customTransferId?: string;
   appGroup?: string;
 }
@@ -35,10 +33,8 @@ export interface DownloadAndDecryptOptions {
   url: string;
   destination: string;
   headers?: { [key: string]: string };
-  encryption: {
-    key: string;
-    nonce: string;
-  };
+  encryptionKey: string;
+  encryptionNonce: string;
 }
 
 export interface Spec extends TurboModule {

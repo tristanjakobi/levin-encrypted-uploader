@@ -128,72 +128,45 @@ RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options
                   resolve:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject) {
     @try {
-        // First, validate that options exists and is a dictionary
-        if (!options || ![options isKindOfClass:[NSDictionary class]]) {
-            [self sendLog:@"error" module:@"startUpload" message:@"Upload options must be a valid object" error:nil params:options];
-            reject(@"E_INVALID_ARGUMENT", @"Upload options must be a valid object", nil);
-            return;
-        }
-        
-        // Validate encryption dictionary first before trying to access its properties
-        id encryptionObj = [options objectForKey:@"encryption"];
-        if (!encryptionObj || ![encryptionObj isKindOfClass:[NSDictionary class]]) {
-            [self sendLog:@"error" module:@"startUpload" message:@"Missing or invalid encryption data" error:nil params:options];
-            reject(@"E_INVALID_ARGUMENT", @"Missing or invalid encryption data", nil);
-            return;
-        }
-        
-        NSDictionary *encryption = (NSDictionary *)encryptionObj;
-        NSString *base64Key = [encryption objectForKey:@"key"];
-        NSString *base64Nonce = [encryption objectForKey:@"nonce"];
-        
-        if (!base64Key || !base64Nonce) {
-            [self sendLog:@"error" module:@"startUpload" message:@"Missing encryption key or nonce" error:nil params:@{
-                @"hasKey": @(base64Key != nil),
-                @"hasNonce": @(base64Nonce != nil)
-            }];
-            reject(@"E_INVALID_ARGUMENT", @"Missing encryption key or nonce", nil);
-            return;
-        }
-        
-        NSData *keyData = [[NSData alloc] initWithBase64EncodedString:base64Key options:0];
-        NSData *nonceData = [[NSData alloc] initWithBase64EncodedString:base64Nonce options:0];
-        
-        if (!keyData || !nonceData) {
-            [self sendLog:@"error" module:@"startUpload" message:@"Failed to decode encryption parameters" error:nil params:@{
-                @"keyLength": @(base64Key.length),
-                @"nonceLength": @(base64Nonce.length)
-            }];
-            reject(@"E_INVALID_ARGUMENT", @"Invalid encryption key or nonce format", nil);
-            return;
-        }
-        
         int thisUploadId;
         @synchronized(self.class) {
             thisUploadId = uploadId++;
         }
 
         // Safely extract values with validation
-        NSString *uploadUrl = [options objectForKey:@"url"];
-        NSString *fileURI = [options objectForKey:@"path"];
-        NSString *method = [options objectForKey:@"method"] ?: @"POST";
-        NSString *customTransferId = [options objectForKey:@"customTransferId"];
-        NSString *appGroup = [options objectForKey:@"appGroup"];
-        NSDictionary *headers = [options objectForKey:@"headers"];
+        NSString *uploadUrl = options[@"url"];
+        NSString *fileURI = options[@"path"];
+        NSString *method = options[@"method"] ?: @"POST";
+        NSString *customTransferId = options[@"customTransferId"];
+        NSString *appGroup = options[@"appGroup"];
+        NSDictionary *headers = options[@"headers"];
+        
+        // Get encryption parameters directly
+        NSString *base64Key = options[@"encryptionKey"];
+        NSString *base64Nonce = options[@"encryptionNonce"];
 
         // Validate all required parameters
         if (!uploadUrl || !fileURI) {
-            [self sendLog:@"error" module:@"startUpload" message:@"Missing required URL or file path" error:nil params:@{
-                @"hasUrl": @(uploadUrl != nil),
-                @"hasFileURI": @(fileURI != nil)
-            }];
             reject(@"E_INVALID_ARGUMENT", @"Missing required URL or file path", nil);
             return;
         }
+        
+        if (!base64Key || !base64Nonce) {
+            reject(@"E_INVALID_ARGUMENT", @"Missing encryption key or nonce", nil);
+            return;
+        }
 
+        NSData *keyData = [[NSData alloc] initWithBase64EncodedString:base64Key options:0];
+        NSData *nonceData = [[NSData alloc] initWithBase64EncodedString:base64Nonce options:0];
+        
+        if (!keyData || !nonceData) {
+            reject(@"E_INVALID_ARGUMENT", @"Invalid encryption key or nonce format", nil);
+            return;
+        }
+
+        // The rest of your implementation
         NSURL *requestUrl = [NSURL URLWithString:uploadUrl];
         if (requestUrl == nil) {
-            [self sendLog:@"error" module:@"startUpload" message:@"Invalid URL format" error:nil params:@{@"url": uploadUrl}];
             reject(@"E_INVALID_ARGUMENT", @"URL not compliant with RFC 2396", nil);
             return;
         }
@@ -201,6 +174,7 @@ RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options
         NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:requestUrl];
         [request setHTTPMethod:method];
 
+        // Safely process headers
         if (headers && [headers isKindOfClass:[NSDictionary class]]) {
             [headers enumerateKeysAndObjectsUsingBlock:^(id key, id val, BOOL *stop) {
                 if ([val respondsToSelector:@selector(stringValue)]) {
@@ -212,30 +186,24 @@ RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options
             }];
         }
 
-        if ([fileURI hasPrefix:@"assets-library"]) {
+        if (fileURI && [fileURI hasPrefix:@"assets-library"]) {
             dispatch_group_t group = dispatch_group_create();
             dispatch_group_enter(group);
-            __block NSString *tempFileURI = nil;
             [self copyAssetToFile:fileURI completionHandler:^(NSString *tempFileUrl, NSError *error) {
                 if (error) {
                     dispatch_group_leave(group);
-                    [self sendLog:@"error" module:@"startUpload" message:@"Asset could not be copied to temp file" error:error params:@{@"fileURI": fileURI}];
-                    reject(@"RN Uploader", @"Asset could not be copied to temp file.", nil);
+                    reject(@"E_ASSET_COPY_ERROR", @"Asset could not be copied to temp file.", error);
                     return;
                 }
-                tempFileURI = tempFileUrl;
+                fileURI = tempFileUrl;
                 dispatch_group_leave(group);
             }];
             dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
-            if (tempFileURI) {
-                fileURI = tempFileURI;
-            }
         }
 
         NSInputStream *encryptedStream = [self encryptedInputStreamFromFile:fileURI key:keyData nonce:nonceData];
         if (!encryptedStream) {
-            [self sendLog:@"error" module:@"startUpload" message:@"Failed to create encrypted input stream" error:nil params:@{@"fileURI": fileURI}];
-            reject(@"RN Uploader", @"Failed to create encrypted input stream", nil);
+            reject(@"E_STREAM_ERROR", @"Failed to create encrypted input stream", nil);
             return;
         }
         
@@ -244,18 +212,21 @@ RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options
         NSURLSessionDataTask *uploadTask = [[self urlSession:appGroup] uploadTaskWithStreamedRequest:request];
         NSString *taskId = customTransferId ? customTransferId : [NSString stringWithFormat:@"%i", thisUploadId];
         uploadTask.taskDescription = taskId;
-        self.uploadTasks[taskId] = uploadTask;
-        self.uploadStreams[taskId] = encryptedStream;
+        
+        // Safely store task references
+        if (self.uploadTasks) {
+            self.uploadTasks[taskId] = uploadTask;
+        }
+        
+        if (self.uploadStreams) {
+            self.uploadStreams[taskId] = encryptedStream;
+        }
 
         [uploadTask resume];
         resolve(taskId);
     }
     @catch (NSException *exception) {
-        [self sendLog:@"error" module:@"startUpload" message:@"Unexpected error during upload" error:nil params:@{
-            @"exception": exception.name,
-            @"reason": exception.reason ?: @"Unknown"
-        }];
-        reject(@"RN Uploader", exception.name, nil);
+        reject(@"E_UPLOAD_EXCEPTION", [NSString stringWithFormat:@"Exception: %@", exception.description], nil);
     }
 }
 
@@ -341,16 +312,9 @@ RCT_EXPORT_METHOD(downloadAndDecrypt:(NSDictionary *)options
     NSString *urlStr = [options objectForKey:@"url"];
     NSString *destination = [options objectForKey:@"destination"];
     
-    // Validate encryption dictionary
-    id encryptionObj = [options objectForKey:@"encryption"];
-    if (!encryptionObj || ![encryptionObj isKindOfClass:[NSDictionary class]]) {
-        reject(@"E_INVALID_ARGUMENT", @"Missing or invalid encryption data", nil);
-        return;
-    }
-    
-    NSDictionary *encryption = (NSDictionary *)encryptionObj;
-    NSString *base64Key = [encryption objectForKey:@"key"];
-    NSString *base64Nonce = [encryption objectForKey:@"nonce"];
+    // Get encryption parameters directly
+    NSString *base64Key = [options objectForKey:@"encryptionKey"];
+    NSString *base64Nonce = [options objectForKey:@"encryptionNonce"];
     NSDictionary *headers = [options objectForKey:@"headers"];
 
     if (!urlStr || !destination) {
