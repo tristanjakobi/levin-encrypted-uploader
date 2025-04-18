@@ -14,8 +14,8 @@
   NSMutableDictionary *_responsesData;
 }
 @property (nonatomic, strong) NSURLSession *session;
-@property (nonatomic, strong) NSMutableDictionary *uploadTasks;
-@property (nonatomic, strong) NSMutableDictionary *downloadTasks;
-@property (nonatomic, strong) NSMutableDictionary *uploadStreams;
+- (NSMutableDictionary *)uploadTasks;
+- (NSMutableDictionary *)uploadStreams;
+- (NSMutableDictionary *)downloadTasks;
 @end
 

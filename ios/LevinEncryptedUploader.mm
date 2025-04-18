@@ -7,14 +7,15 @@ static NSString *BACKGROUND_SESSION_ID = @"levin-encrypted-uploader";
 static int uploadId = 0;
 static LevinEncryptedUploader* staticEventEmitter = nil;
 
+static NSMutableDictionary *_uploadTasks = nil;
+static NSMutableDictionary *_uploadStreams = nil;
+static NSMutableDictionary *_downloadTasks = nil;
+
 - (instancetype)init {
     self = [super init];
     if (self) {
         staticEventEmitter = self;
         _responsesData = [NSMutableDictionary dictionary];
-        self.uploadTasks = [NSMutableDictionary dictionary];
-        self.downloadTasks = [NSMutableDictionary dictionary];
-        self.uploadStreams = [NSMutableDictionary dictionary];
     }
     return self;
 }
@@ -22,6 +23,20 @@ static LevinEncryptedUploader* staticEventEmitter = nil;
 - (void)invalidate {
     [super invalidate];
     staticEventEmitter = nil;
+}
+
+- (NSMutableDictionary *)uploadTasks {
+    if (_uploadTasks == nil) {
+        _uploadTasks = [NSMutableDictionary dictionary];
+    }
+    return _uploadTasks;
+}
+
+- (NSMutableDictionary *)uploadStreams {
+    if (_uploadStreams == nil) {
+        _uploadStreams = [NSMutableDictionary dictionary];
+    }
+    return _uploadStreams;
 }
 
 - (NSArray<NSString *> *)supportedEvents {
