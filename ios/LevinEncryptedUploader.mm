@@ -113,7 +113,7 @@ static NSMutableDictionary *_downloadTasks = nil;
 }
 
 - (NSInputStream *)encryptedInputStreamFromFile:(NSString *)fileURI key:(NSData *)key nonce:(NSData *)nonce {
-    NSURL *fileURL = [self fileURLFromPath:resolvedFileURI];
+    NSURL *fileURL = [self fileURLFromPath:fileURI];
     NSInputStream *inputStream = [NSInputStream inputStreamWithURL:fileURL];
     return [[EncryptedInputStream alloc] initWithInputStream:inputStream key:key nonce:nonce];
 }
@@ -159,26 +159,7 @@ RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options
 
         // Safely extract values with validation
         NSString *uploadUrl = options[@"url"];
-
-        NSString *originalFileURI = options[@"path"];
-        __block NSString *resolvedFileURI = originalFileURI;
-
-        if (resolvedFileURI && [resolvedFileURI hasPrefix:@"assets-library"]) {
-            dispatch_group_t group = dispatch_group_create();
-            dispatch_group_enter(group);
-            [self copyAssetToFile:resolvedFileURI completionHandler:^(NSString *tempFileUrl, NSError *error) {
-                if (error) {
-                    dispatch_group_leave(group);
-                    reject(@"E_ASSET_COPY_ERROR", @"Asset could not be copied to temp file.", error);
-                    return;
-                }
-                resolvedFileURI = tempFileUrl;
-                dispatch_group_leave(group);
-            }];
-            dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
-        }
-
-
+        NSString *fileURI = options[@"path"];
         NSString *method = options[@"method"] ?: @"POST";
         NSString *customTransferId = options[@"customTransferId"];
         NSString *appGroup = options[@"appGroup"];
@@ -229,20 +210,30 @@ RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options
             }];
         }
 
-
         if (fileURI && [fileURI hasPrefix:@"assets-library"]) {
             dispatch_group_t group = dispatch_group_create();
             dispatch_group_enter(group);
+            __block NSString *tempFileURI = nil;
+            __block NSError *copyError = nil;
+            
             [self copyAssetToFile:fileURI completionHandler:^(NSString *tempFileUrl, NSError *error) {
                 if (error) {
-                    dispatch_group_leave(group);
-                    reject(@"E_ASSET_COPY_ERROR", @"Asset could not be copied to temp file.", error);
-                    return;
+                    copyError = error;
+                } else {
+                    tempFileURI = tempFileUrl;
                 }
-                fileURI = tempFileUrl;
                 dispatch_group_leave(group);
             }];
             dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
+            
+            if (copyError) {
+                reject(@"E_ASSET_COPY_ERROR", @"Asset could not be copied to temp file.", copyError);
+                return;
+            }
+            
+            if (tempFileURI) {
+                fileURI = tempFileURI;
+            }
         }
 
         NSInputStream *encryptedStream = [self encryptedInputStreamFromFile:fileURI key:keyData nonce:nonceData];
