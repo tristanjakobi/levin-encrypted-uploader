@@ -30,7 +30,7 @@
     if (self) {
         _sourceStream = stream;
         _readBuffer = [NSMutableData dataWithLength:4096];
-        _internalBuffer = (uint8_t *)malloc(4096);
+        _internalBuffer = static_cast<uint8_t *>(malloc(4096));
         _bufferPos = 0;
         _bufferLen = 0;
 
@@ -87,7 +87,7 @@
 
     NSUInteger available = _bufferLen - _bufferPos;
     NSUInteger toCopy = MIN(len, available);
-    memcpy(buffer, (uint8_t *)_readBuffer.bytes + _bufferPos, toCopy);
+    memcpy(buffer, static_cast<const uint8_t *>(_readBuffer.bytes) + _bufferPos, toCopy);
     _bufferPos += toCopy;
 
     return toCopy;
