@@ -135,7 +135,7 @@ RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options
 
         // Safely extract values with validation
         NSString *uploadUrl = options[@"url"];
-        NSString *fileURI = options[@"path"];
+        __block NSString *fileURI = options[@"path"];
         NSString *method = options[@"method"] ?: @"POST";
         NSString *customTransferId = options[@"customTransferId"];
         NSString *appGroup = options[@"appGroup"];
