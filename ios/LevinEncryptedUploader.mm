@@ -78,6 +78,15 @@ static NSMutableDictionary *_downloadTasks = nil;
     [self _sendEventWithName:@"levin-encrypted-uploader-log" body:logData];
 }
 
+- (NSURL *)fileURLFromPath:(NSString *)path {
+    if ([path hasPrefix:@"file://"]) {
+        return [NSURL URLWithString:[path stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet]];
+    } else {
+        return [NSURL fileURLWithPath:path];
+    }
+}
+
+
 - (NSString *)guessMIMETypeFromFileName:(NSString *)fileName {
     CFStringRef UTI = UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, (__bridge CFStringRef)[fileName pathExtension], NULL);
     CFStringRef MIMEType = UTTypeCopyPreferredTagWithClass(UTI, kUTTagClassMIMEType);
@@ -104,7 +113,7 @@ static NSMutableDictionary *_downloadTasks = nil;
 }
 
 - (NSInputStream *)encryptedInputStreamFromFile:(NSString *)fileURI key:(NSData *)key nonce:(NSData *)nonce {
-    NSURL *fileURL = [NSURL URLWithString:fileURI];
+    NSURL *fileURL = [self fileURLFromPath:resolvedFileURI];
     NSInputStream *inputStream = [NSInputStream inputStreamWithURL:fileURL];
     return [[EncryptedInputStream alloc] initWithInputStream:inputStream key:key nonce:nonce];
 }
@@ -150,7 +159,26 @@ RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options
 
         // Safely extract values with validation
         NSString *uploadUrl = options[@"url"];
-        __block NSString *fileURI = options[@"path"];
+
+        NSString *originalFileURI = options[@"path"];
+        __block NSString *resolvedFileURI = originalFileURI;
+
+        if (resolvedFileURI && [resolvedFileURI hasPrefix:@"assets-library"]) {
+            dispatch_group_t group = dispatch_group_create();
+            dispatch_group_enter(group);
+            [self copyAssetToFile:resolvedFileURI completionHandler:^(NSString *tempFileUrl, NSError *error) {
+                if (error) {
+                    dispatch_group_leave(group);
+                    reject(@"E_ASSET_COPY_ERROR", @"Asset could not be copied to temp file.", error);
+                    return;
+                }
+                resolvedFileURI = tempFileUrl;
+                dispatch_group_leave(group);
+            }];
+            dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
+        }
+
+
         NSString *method = options[@"method"] ?: @"POST";
         NSString *customTransferId = options[@"customTransferId"];
         NSString *appGroup = options[@"appGroup"];
@@ -189,9 +217,9 @@ RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options
         NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:requestUrl];
         [request setHTTPMethod:method];
 
-        // Safely process headers
         if (headers && [headers isKindOfClass:[NSDictionary class]]) {
             [headers enumerateKeysAndObjectsUsingBlock:^(id key, id val, BOOL *stop) {
+                if (![key isKindOfClass:[NSString class]]) return;
                 if ([val respondsToSelector:@selector(stringValue)]) {
                     val = [val stringValue];
                 }
@@ -200,6 +228,7 @@ RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options
                 }
             }];
         }
+
 
         if (fileURI && [fileURI hasPrefix:@"assets-library"]) {
             dispatch_group_t group = dispatch_group_create();
