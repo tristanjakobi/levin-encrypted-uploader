@@ -228,14 +228,8 @@ RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options
         NSString *taskId = customTransferId ? customTransferId : [NSString stringWithFormat:@"%i", thisUploadId];
         uploadTask.taskDescription = taskId;
         
-        // Safely store task references
-        if (self.uploadTasks) {
-            self.uploadTasks[taskId] = uploadTask;
-        }
-        
-        if (self.uploadStreams) {
-            self.uploadStreams[taskId] = encryptedStream;
-        }
+        [[self uploadTasks] setObject:uploadTask forKey:taskId];
+        [[self uploadStreams] setObject:encryptedStream forKey:taskId];
 
         [uploadTask resume];
         resolve(taskId);
