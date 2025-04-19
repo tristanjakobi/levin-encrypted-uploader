@@ -297,11 +297,11 @@ static NSMutableDictionary *_downloadTasks = nil;
     }
 }
 
-- (void)downloadAndDecrypt:(JS::NativeLevinEncryptedUploader::DownloadOptions &)options
+- (void)downloadAndDecrypt:(JS::NativeLevinEncryptedUploader::DownloadAndDecryptOptions &)options
                   resolve:(RCTPromiseResolveBlock)resolve
                    reject:(RCTPromiseRejectBlock)reject {
     NSString *urlStr = options.url();
-    NSString *destination = options.path();
+    NSString *destination = options.destination();
     
     // Get encryption parameters
     NSString *base64Key = options.encryptionKey();
