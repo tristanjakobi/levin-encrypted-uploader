@@ -38,6 +38,13 @@ static NSMutableDictionary *_downloadTasks = nil;
     return _uploadStreams;
 }
 
+- (NSMutableDictionary *)downloadTasks {
+    if (_downloadTasks == nil) {
+        _downloadTasks = [NSMutableDictionary dictionary];
+    }
+    return _downloadTasks;
+}
+
 - (NSArray<NSString *> *)supportedEvents {
     return @[
         @"levin-encrypted-uploader-progress",
@@ -137,6 +144,13 @@ static NSMutableDictionary *_downloadTasks = nil;
         NSString *base64Key = options.encryptionKey();
         NSString *base64Nonce = options.encryptionNonce();
 
+        NSLog(@"[LevinEncryptedUploader] Starting upload:");
+        NSLog(@"  ➤ URL: %@", uploadUrl);
+        NSLog(@"  ➤ File: %@", fileURI);
+        NSLog(@"  ➤ Method: %@", method);
+        NSLog(@"  ➤ Has key: %@", base64Key ? @"YES" : @"NO");
+        NSLog(@"  ➤ Has nonce: %@", base64Nonce ? @"YES" : @"NO");
+
         // Validate all required parameters
         if (!uploadUrl || !fileURI) {
             reject(@"E_INVALID_ARGUMENT", @"Missing required URL or file path", nil);
@@ -165,6 +179,7 @@ static NSMutableDictionary *_downloadTasks = nil;
 
         NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:requestUrl];
         [request setHTTPMethod:method];
+        [request setValue:@"application/octet-stream" forHTTPHeaderField:@"Content-Type"];
 
         if (headers && [headers isKindOfClass:[NSDictionary class]]) {
             [headers enumerateKeysAndObjectsUsingBlock:^(id key, id val, BOOL *stop) {
@@ -219,10 +234,12 @@ static NSMutableDictionary *_downloadTasks = nil;
         [[self uploadTasks] setObject:uploadTask forKey:taskId];
         [[self uploadStreams] setObject:encryptedStream forKey:taskId];
 
+        NSLog(@"[LevinEncryptedUploader] Starting upload task with ID: %@", taskId);
         [uploadTask resume];
         resolve(taskId);
     }
     @catch (NSException *exception) {
+        NSLog(@"[LevinEncryptedUploader] Exception during upload: %@", exception);
         reject(@"E_UPLOAD_EXCEPTION", [NSString stringWithFormat:@"Exception: %@", exception.description], nil);
     }
 }
@@ -445,11 +462,14 @@ static NSMutableDictionary *_downloadTasks = nil;
               task:(NSURLSessionTask *)task
 didCompleteWithError:(NSError *)error {
     NSString *taskId = task.taskDescription;
+    NSLog(@"[LevinEncryptedUploader] Task completed - ID: %@, error: %@", taskId, error);
+    
     if (!taskId) return;
     
     // Handle upload stream cleanup
     NSInputStream *stream = self.uploadStreams[taskId];
     if (stream) {
+        NSLog(@"[LevinEncryptedUploader] Closing upload stream for task: %@", taskId);
         [stream close];
         [self.uploadStreams removeObjectForKey:taskId];
     }
@@ -462,15 +482,22 @@ didCompleteWithError:(NSError *)error {
         NSHTTPURLResponse *response = (NSHTTPURLResponse *)uploadTask.response;
         
         if (response != nil) {
+            NSLog(@"[LevinEncryptedUploader] Response status code: %ld", (long)response.statusCode);
             [data setObject:[NSNumber numberWithInteger:response.statusCode] forKey:@"responseCode"];
+            
+            // Log all response headers
+            NSDictionary *headers = [response allHeaderFields];
+            NSLog(@"[LevinEncryptedUploader] Response headers: %@", headers);
         }
         
         NSMutableData *responseData = _responsesData[@(task.taskIdentifier)];
         if (responseData) {
             [_responsesData removeObjectForKey:@(task.taskIdentifier)];
             NSString *response = [[NSString alloc] initWithData:responseData encoding:NSUTF8StringEncoding];
+            NSLog(@"[LevinEncryptedUploader] Response body: %@", response);
             [data setObject:response forKey:@"responseBody"];
         } else {
+            NSLog(@"[LevinEncryptedUploader] No response data received");
             [data setObject:[NSNull null] forKey:@"responseBody"];
         }
     }
@@ -479,17 +506,22 @@ didCompleteWithError:(NSError *)error {
     if ([task isKindOfClass:[NSURLSessionDownloadTask class]]) {
         NSHTTPURLResponse *response = (NSHTTPURLResponse *)task.response;
         if (response != nil) {
+            NSLog(@"[LevinEncryptedUploader] Download response status code: %ld", (long)response.statusCode);
             [data setObject:[NSNumber numberWithInteger:response.statusCode] forKey:@"responseCode"];
         }
     }
 
     if (error == nil) {
+        NSLog(@"[LevinEncryptedUploader] Upload completed successfully");
         [self _sendEventWithName:@"levin-encrypted-uploader-completed" body:data];
     } else {
+        NSLog(@"[LevinEncryptedUploader] Upload failed with error: %@", error);
         [data setObject:error.localizedDescription forKey:@"error"];
         if (error.code == NSURLErrorCancelled) {
+            NSLog(@"[LevinEncryptedUploader] Upload was cancelled");
             [self _sendEventWithName:@"levin-encrypted-uploader-cancelled" body:data];
         } else {
+            NSLog(@"[LevinEncryptedUploader] Upload failed with error: %@", error);
             [self _sendEventWithName:@"levin-encrypted-uploader-error" body:data];
         }
     }
@@ -509,14 +541,20 @@ totalBytesExpectedToSend:(int64_t)totalBytesExpectedToSend {
         progress = 100.0 * (float)totalBytesSent / (float)totalBytesExpectedToSend;
     }
     
+    NSLog(@"[LevinEncryptedUploader] Upload progress - ID: %@, sent: %lld, total: %lld, expected: %lld, progress: %.2f%%",
+          task.taskDescription, bytesSent, totalBytesSent, totalBytesExpectedToSend, progress);
+    
     [self _sendEventWithName:@"levin-encrypted-uploader-progress" 
                        body:@{ @"id": task.taskDescription, @"progress": [NSNumber numberWithFloat:progress] }];
 }
 
 - (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveData:(NSData *)data {
     if (!data.length) {
+        NSLog(@"[LevinEncryptedUploader] Received empty data");
         return;
     }
+    NSLog(@"[LevinEncryptedUploader] Received %lu bytes of response data", (unsigned long)data.length);
+    
     NSMutableData *responseData = _responsesData[@(dataTask.taskIdentifier)];
     if (!responseData) {
         responseData = [NSMutableData dataWithData:data];
@@ -529,8 +567,11 @@ totalBytesExpectedToSend:(int64_t)totalBytesExpectedToSend {
 - (void)URLSession:(NSURLSession *)session
               task:(NSURLSessionTask *)task
  needNewBodyStream:(void (^)(NSInputStream *bodyStream))completionHandler {
+    NSLog(@"[LevinEncryptedUploader] Need new body stream for task: %@", task.taskDescription);
+    
     NSInputStream *inputStream = task.originalRequest.HTTPBodyStream;
     if (completionHandler) {
+        NSLog(@"[LevinEncryptedUploader] Providing new body stream");
         completionHandler(inputStream);
     }
 }

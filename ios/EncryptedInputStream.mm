@@ -34,7 +34,7 @@
         _bufferPos = 0;
         _bufferLen = 0;
 
-        CCCryptorCreateWithMode(kCCEncrypt,
+        CCCryptorStatus status = CCCryptorCreateWithMode(kCCEncrypt,
                                 kCCModeCTR,
                                 kCCAlgorithmAES,
                                 ccNoPadding,
@@ -44,6 +44,13 @@
                                 NULL, 0, 0,
                                 kCCModeOptionCTR_BE,
                                 &_cryptor);
+                                
+        if (status != kCCSuccess) {
+            NSLog(@"[EncryptedInputStream] Failed to create cryptor with status: %d", status);
+            return nil;
+        }
+        
+        NSLog(@"[EncryptedInputStream] Successfully initialized with key length: %lu, nonce length: %lu", (unsigned long)key.length, (unsigned long)nonce.length);
     }
     return self;
 }
@@ -59,16 +66,21 @@
 
 - (void)open {
     [_sourceStream open];
+    NSLog(@"[EncryptedInputStream] Stream opened, status: %ld", (long)[_sourceStream streamStatus]);
 }
 
 - (void)close {
     [_sourceStream close];
+    NSLog(@"[EncryptedInputStream] Stream closed");
 }
 
 - (NSInteger)read:(uint8_t *)buffer maxLength:(NSUInteger)len {
     if (_bufferPos >= _bufferLen) {
         NSInteger bytesRead = [_sourceStream read:_internalBuffer maxLength:4096];
+        NSLog(@"[EncryptedInputStream] Read %ld bytes from source stream", (long)bytesRead);
+        
         if (bytesRead <= 0) {
+            NSLog(@"[EncryptedInputStream] No more data to read or error occurred");
             return bytesRead;
         }
 
@@ -77,10 +89,13 @@
                                                  _internalBuffer, bytesRead,
                                                  _readBuffer.mutableBytes, _readBuffer.length,
                                                  &outMoved);
+                                                 
         if (status != kCCSuccess) {
+            NSLog(@"[EncryptedInputStream] Encryption failed with status: %d", status);
             return -1;
         }
 
+        NSLog(@"[EncryptedInputStream] Encrypted %zu bytes", outMoved);
         _bufferLen = outMoved;
         _bufferPos = 0;
     }
@@ -90,6 +105,7 @@
     memcpy(buffer, static_cast<const uint8_t *>(_readBuffer.bytes) + _bufferPos, toCopy);
     _bufferPos += toCopy;
 
+    NSLog(@"[EncryptedInputStream] Returning %lu bytes to caller", (unsigned long)toCopy);
     return toCopy;
 }
 
