@@ -1,28 +1,38 @@
 buildscript {
+  ext {
+    kotlinVersion = '1.6.0'
+    buildToolsVersion = '29.0.2'
+    compileSdkVersion = 29
+    targetSdkVersion = 29
+    minSdkVersion = 18
+  }
+  ext.detoxKotlinVersion = ext.kotlinVersion
+
   ext.getExtOrDefault = {name ->
     return rootProject.ext.has(name) ? rootProject.ext.get(name) : project.properties['LevinEncryptedUploader_' + name]
   }
 
   repositories {
-    google()
     mavenCentral()
+    google()
   }
 
   dependencies {
-    classpath "com.android.tools.build:gradle:8.7.2"
-    // noinspection DifferentKotlinGradleVersion
-    classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${getExtOrDefault('kotlinVersion')}"
+    classpath 'com.android.tools.build:gradle:3.5.3'
+    classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion"
   }
 }
 
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+apply plugin: 'kotlin-android-extensions'
 
-apply plugin: "com.android.library"
-apply plugin: "kotlin-android"
+def DEFAULT_COMPILE_SDK_VERSION = 28
+def DEFAULT_BUILD_TOOLS_VERSION = "28.0.3"
+def DEFAULT_TARGET_SDK_VERSION = 28
 
-apply plugin: "com.facebook.react"
-
-def getExtOrIntegerDefault(name) {
-  return rootProject.ext.has(name) ? rootProject.ext.get(name) : (project.properties["LevinEncryptedUploader_" + name]).toInteger()
+def safeExtGet(prop, fallback) {
+  rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
 }
 
 def supportsNamespace() {
@@ -45,11 +55,17 @@ android {
     }
   }
 
-  compileSdkVersion getExtOrIntegerDefault("compileSdkVersion")
+  compileSdkVersion safeExtGet('compileSdkVersion', DEFAULT_COMPILE_SDK_VERSION)
+  buildToolsVersion safeExtGet('buildToolsVersion', DEFAULT_BUILD_TOOLS_VERSION)
 
   defaultConfig {
-    minSdkVersion getExtOrIntegerDefault("minSdkVersion")
-    targetSdkVersion getExtOrIntegerDefault("targetSdkVersion")
+    minSdkVersion 21
+    targetSdkVersion safeExtGet('targetSdkVersion', DEFAULT_TARGET_SDK_VERSION)
+    versionCode 1
+    versionName "1.0"
+    ndk {
+      abiFilters "armeabi-v7a", "x86"
+    }
   }
 
   buildFeatures {
@@ -64,6 +80,7 @@ android {
 
   lintOptions {
     disable "GradleCompatible"
+    abortOnError false
   }
 
   compileOptions {
@@ -83,14 +100,20 @@ android {
 
 repositories {
   mavenCentral()
-  google()
+  maven { url 'https://jitpack.io' }
 }
 
-def kotlin_version = getExtOrDefault("kotlinVersion")
+def _ext = ext
+
+def _kotlinVersion = _ext.has('detoxKotlinVersion') ? _ext.detoxKotlinVersion : '1.3.10'
+def _kotlinStdlib = _ext.has('detoxKotlinStdlib') ? _ext.detoxKotlinStdlib : 'kotlin-stdlib-jdk8'
 
 dependencies {
-  implementation "com.facebook.react:react-android"
-  implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+  implementation "androidx.core:core-ktx:1.0.1"
+  implementation 'com.facebook.react:react-native:+'
+  implementation "org.jetbrains.kotlin:$_kotlinStdlib:$_kotlinVersion"
+  implementation 'com.github.tristanjakobi:android-upload-service-encrypted:Tag'
+  implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.0.0'
 }
 
 react {
