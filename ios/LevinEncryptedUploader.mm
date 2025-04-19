@@ -1,7 +1,6 @@
 #import "LevinEncryptedUploader.h"
 
 @implementation LevinEncryptedUploader
-RCT_EXPORT_MODULE()
 
 static NSString *BACKGROUND_SESSION_ID = @"levin-encrypted-uploader";
 static int uploadId = 0;
@@ -58,7 +57,7 @@ static NSMutableDictionary *_downloadTasks = nil;
          module:(NSString *)module 
         message:(NSString *)message 
           error:(NSError * _Nullable)error 
-         params:(NSDictionary * _Nullable)params {
+          params:(NSDictionary * _Nullable)params {
     NSMutableDictionary *logData = [NSMutableDictionary dictionary];
     logData[@"level"] = level;
     logData[@"module"] = module;
@@ -85,7 +84,6 @@ static NSMutableDictionary *_downloadTasks = nil;
         return [NSURL fileURLWithPath:path];
     }
 }
-
 
 - (NSString *)guessMIMETypeFromFileName:(NSString *)fileName {
     CFStringRef UTI = UTTypeCreatePreferredIdentifierForTag(kUTTagClassFilenameExtension, (__bridge CFStringRef)[fileName pathExtension], NULL);
@@ -118,56 +116,26 @@ static NSMutableDictionary *_downloadTasks = nil;
     return [[EncryptedInputStream alloc] initWithInputStream:inputStream key:key nonce:nonce];
 }
 
-RCT_EXPORT_METHOD(getFileInfo:(NSString *)path
-                  resolve:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject) {
-    @try {
-        NSString *escapedPath = [path stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLQueryAllowedCharacterSet];
-        NSURL *fileUri = [NSURL URLWithString:escapedPath];
-        NSString *pathWithoutProtocol = [fileUri path];
-        NSString *name = [fileUri lastPathComponent];
-        NSString *extension = [name pathExtension];
-        bool exists = [[NSFileManager defaultManager] fileExistsAtPath:pathWithoutProtocol];
-        NSMutableDictionary *params = [NSMutableDictionary dictionaryWithObjectsAndKeys:name, @"name", nil];
-        [params setObject:extension forKey:@"extension"];
-        [params setObject:[NSNumber numberWithBool:exists] forKey:@"exists"];
-
-        if (exists) {
-            [params setObject:[self guessMIMETypeFromFileName:name] forKey:@"mimeType"];
-            NSError* error;
-            NSDictionary<NSFileAttributeKey, id> *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:pathWithoutProtocol error:&error];
-            if (error == nil) {
-                unsigned long long fileSize = [attributes fileSize];
-                [params setObject:[NSNumber numberWithLong:fileSize] forKey:@"size"];
-            }
-        }
-        resolve(params);
-    }
-    @catch (NSException *exception) {
-        reject(@"RN Uploader", exception.name, nil);
-    }
-}
-
-RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options
-                  resolve:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject) {
+- (void)startUpload:(JS::NativeLevinEncryptedUploader::UploadOptions &)options
+           resolve:(RCTPromiseResolveBlock)resolve
+            reject:(RCTPromiseRejectBlock)reject {
     @try {
         int thisUploadId;
         @synchronized(self.class) {
             thisUploadId = uploadId++;
         }
 
-        // Safely extract values with validation
-        NSString *uploadUrl = options[@"url"];
-        NSString *fileURI = options[@"path"];
-        NSString *method = options[@"method"] ?: @"POST";
-        NSString *customTransferId = options[@"customTransferId"];
-        NSString *appGroup = options[@"appGroup"];
-        NSDictionary *headers = options[@"headers"];
+        // Extract values from the typed options
+        NSString *uploadUrl = options.url();
+        NSString *fileURI = options.path();
+        NSString *method = options.method() ?: @"POST";
+        NSString *customTransferId = options.customTransferId();
+        NSString *appGroup = options.appGroup();
+        NSDictionary *headers = (NSDictionary *)options.headers();
         
-        // Get encryption parameters directly
-        NSString *base64Key = options[@"encryptionKey"];
-        NSString *base64Nonce = options[@"encryptionNonce"];
+        // Get encryption parameters
+        NSString *base64Key = options.encryptionKey();
+        NSString *base64Nonce = options.encryptionNonce();
 
         // Validate all required parameters
         if (!uploadUrl || !fileURI) {
@@ -259,9 +227,9 @@ RCT_EXPORT_METHOD(startUpload:(NSDictionary *)options
     }
 }
 
-RCT_EXPORT_METHOD(cancelUpload:(NSString *)uploadId
-                  resolve:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject) {
+- (void)cancelUpload:(NSString *)uploadId
+           resolve:(RCTPromiseResolveBlock)resolve
+            reject:(RCTPromiseRejectBlock)reject {
     NSURLSessionUploadTask *task = self.uploadTasks[uploadId];
     if (task) {
         [task cancel];
@@ -272,15 +240,15 @@ RCT_EXPORT_METHOD(cancelUpload:(NSString *)uploadId
     }
 }
 
-RCT_EXPORT_METHOD(startDownload:(NSDictionary *)options
-                  resolve:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject) {
-    NSString *url = options[@"url"];
-    NSString *path = options[@"path"];
-    NSString *method = options[@"method"] ?: @"GET";
-    NSString *customTransferId = options[@"customTransferId"];
-    NSString *appGroup = options[@"appGroup"];
-    NSDictionary *headers = options[@"headers"];
+- (void)startDownload:(JS::NativeLevinEncryptedUploader::DownloadOptions &)options
+             resolve:(RCTPromiseResolveBlock)resolve
+              reject:(RCTPromiseRejectBlock)reject {
+    NSString *url = options.url();
+    NSString *path = options.path();
+    NSString *method = options.method() ?: @"GET";
+    NSString *customTransferId = options.customTransferId();
+    NSString *appGroup = options.appGroup();
+    NSDictionary *headers = (NSDictionary *)options.headers();
     
     if (!url || !path) {
         reject(@"E_INVALID_ARGUMENT", @"URL and path are required", nil);
@@ -316,9 +284,9 @@ RCT_EXPORT_METHOD(startDownload:(NSDictionary *)options
     resolve(taskId);
 }
 
-RCT_EXPORT_METHOD(cancelDownload:(NSString *)downloadId
-                  resolve:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject) {
+- (void)cancelDownload:(NSString *)downloadId
+             resolve:(RCTPromiseResolveBlock)resolve
+              reject:(RCTPromiseRejectBlock)reject {
     NSURLSessionDownloadTask *task = self.downloadTasks[downloadId];
     if (task) {
         [task cancel];
@@ -329,22 +297,16 @@ RCT_EXPORT_METHOD(cancelDownload:(NSString *)downloadId
     }
 }
 
-RCT_EXPORT_METHOD(downloadAndDecrypt:(NSDictionary *)options
+- (void)downloadAndDecrypt:(JS::NativeLevinEncryptedUploader::DownloadOptions &)options
                   resolve:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject) {
-    // Validate options
-    if (!options || ![options isKindOfClass:[NSDictionary class]]) {
-        reject(@"E_INVALID_ARGUMENT", @"Download options must be a valid object", nil);
-        return;
-    }
+                   reject:(RCTPromiseRejectBlock)reject {
+    NSString *urlStr = options.url();
+    NSString *destination = options.path();
     
-    NSString *urlStr = [options objectForKey:@"url"];
-    NSString *destination = [options objectForKey:@"destination"];
-    
-    // Get encryption parameters directly
-    NSString *base64Key = [options objectForKey:@"encryptionKey"];
-    NSString *base64Nonce = [options objectForKey:@"encryptionNonce"];
-    NSDictionary *headers = [options objectForKey:@"headers"];
+    // Get encryption parameters
+    NSString *base64Key = options.encryptionKey();
+    NSString *base64Nonce = options.encryptionNonce();
+    NSDictionary *headers = (NSDictionary *)options.headers();
 
     if (!urlStr || !destination) {
         reject(@"E_INVALID_ARGUMENT", @"Missing required URL or destination path", nil);
@@ -374,17 +336,6 @@ RCT_EXPORT_METHOD(downloadAndDecrypt:(NSDictionary *)options
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
     
     if (headers && [headers isKindOfClass:[NSDictionary class]]) {
-        [headers enumerateKeysAndObjectsUsingBlock:^(id key, id val, BOOL *stop) {
-            if ([val respondsToSelector:@selector(stringValue)]) {
-                val = [val stringValue];
-            }
-            if ([val isKindOfClass:[NSString class]]) {
-                [request setValue:val forHTTPHeaderField:key];
-            }
-        }];
-    }
-    
-    if (headers) {
         [headers enumerateKeysAndObjectsUsingBlock:^(id key, id val, BOOL *stop) {
             if ([val respondsToSelector:@selector(stringValue)]) {
                 val = [val stringValue];
@@ -456,6 +407,36 @@ RCT_EXPORT_METHOD(downloadAndDecrypt:(NSDictionary *)options
     }];
 
     [task resume];
+}
+
+- (void)getFileInfo:(NSString *)path
+           resolve:(RCTPromiseResolveBlock)resolve
+            reject:(RCTPromiseRejectBlock)reject {
+    @try {
+        NSString *escapedPath = [path stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLQueryAllowedCharacterSet];
+        NSURL *fileUri = [NSURL URLWithString:escapedPath];
+        NSString *pathWithoutProtocol = [fileUri path];
+        NSString *name = [fileUri lastPathComponent];
+        NSString *extension = [name pathExtension];
+        bool exists = [[NSFileManager defaultManager] fileExistsAtPath:pathWithoutProtocol];
+        NSMutableDictionary *params = [NSMutableDictionary dictionaryWithObjectsAndKeys:name, @"name", nil];
+        [params setObject:extension forKey:@"extension"];
+        [params setObject:[NSNumber numberWithBool:exists] forKey:@"exists"];
+
+        if (exists) {
+            [params setObject:[self guessMIMETypeFromFileName:name] forKey:@"mimeType"];
+            NSError* error;
+            NSDictionary<NSFileAttributeKey, id> *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:pathWithoutProtocol error:&error];
+            if (error == nil) {
+                unsigned long long fileSize = [attributes fileSize];
+                [params setObject:[NSNumber numberWithLong:fileSize] forKey:@"size"];
+            }
+        }
+        resolve(params);
+    }
+    @catch (NSException *exception) {
+        reject(@"RN Uploader", exception.name, nil);
+    }
 }
 
 #pragma mark - NSURLSessionTaskDelegate
