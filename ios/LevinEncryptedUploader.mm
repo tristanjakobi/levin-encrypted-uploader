@@ -217,11 +217,10 @@ static LevinEncryptedUploader* staticEventEmitter = nil;
             return;
         }
         
-        [encryptedStream open];
         [request setHTTPBodyStream:encryptedStream];
 
-        // Use uploadTaskWithStreamedRequest for encrypted upload
-        NSURLSessionUploadTask *uploadTask = [[self urlSession:appGroup] uploadTaskWithStreamedRequest:request];
+        // Use NSURLSessionDataTask with uploadTaskWithStreamedRequest instead of NSURLSessionUploadTask
+        NSURLSessionDataTask *uploadTask = [[self urlSession:appGroup] uploadTaskWithStreamedRequest:request];
         NSString *taskId = customTransferId ? customTransferId : [NSString stringWithFormat:@"%i", thisUploadId];
         uploadTask.taskDescription = taskId;
         
