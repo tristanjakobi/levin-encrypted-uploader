@@ -13,7 +13,7 @@ Pod::Spec.new do |s|
   s.platforms    = { :ios => "11.0" }
   s.source       = { :git => "https://github.com/tristanjakobi/react-native-levin-encrypted-uploader.git", :tag => "#{s.version}" }
 
-  s.source_files = "ios/**/*.{h,m,mm}"
+  s.source_files = "ios/**/*.{h,m,mm}", "ios/generated/**/*.{h,m,mm}"
   s.requires_arc = true
 
   install_modules_dependencies(s)

@@ -7,7 +7,7 @@
 #import <React/RCTUtils.h>
 #import <React/RCTBridgeModule.h>
 #import <React/RCTEventEmitter.h>
-#import <LevinEncryptedUploader/RNLevinEncryptedUploaderSpec.h>
+#import "generated/RNLevinEncryptedUploaderSpec/RNLevinEncryptedUploaderSpec.h"
 
 @interface LevinEncryptedUploader : RCTEventEmitter <NativeLevinEncryptedUploaderSpec, NSURLSessionTaskDelegate, NSURLSessionDataDelegate, NSURLSessionDownloadDelegate>
 {
