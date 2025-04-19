@@ -114,4 +114,6 @@ dependencies {
   implementation "org.jetbrains.kotlin:$_kotlinStdlib:$_kotlinVersion"
   implementation 'com.github.tristanjakobi:android-upload-service-encrypted:1.0.0'
   implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.0.0'
+  implementation 'com.google.crypto.tink:tink-android:1.7.0'
+  implementation 'androidx.work:work-runtime-ktx:2.8.1'
 }
