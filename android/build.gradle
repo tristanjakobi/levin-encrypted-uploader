@@ -25,7 +25,7 @@ buildscript {
 
 apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
-apply plugin: 'kotlin-android-extensions'
+apply plugin: 'kotlin-parcelize'
 
 def DEFAULT_COMPILE_SDK_VERSION = 28
 def DEFAULT_BUILD_TOOLS_VERSION = "28.0.3"
@@ -114,10 +114,4 @@ dependencies {
   implementation "org.jetbrains.kotlin:$_kotlinStdlib:$_kotlinVersion"
   implementation 'com.github.tristanjakobi:android-upload-service-encrypted:Tag'
   implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.0.0'
-}
-
-react {
-  jsRootDir = file("../src/")
-  libraryName = "LevinEncryptedUploader"
-  codegenJavaPackageName = "com.levinencrypteduploader"
 }
