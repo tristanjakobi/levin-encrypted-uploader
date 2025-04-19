@@ -1,202 +1,65 @@
-# React Native Levin Encrypted Uploader
+# react-native-levin-encrypted-uploader 🚧
 
-A React Native module for encrypted file uploads and downloads with background task support.
+A DIY React Native file uploader with mandatory encryption, inspired by the VydiaRNFileUploader. This is very much a work in progress - use at your own risk!
+
+> ⚠️ **Warning**: This package is still in active development. Things might break, change, or not work as expected. You've been warned!
 
 ## Features
 
-- Encrypted file uploads and downloads
-- Background task support
-- Progress tracking
-- Event-based notifications
-- Support for both iOS and Android
-- TypeScript support
-
-## Installation
-
-```bash
-yarn add react-native-levin-encrypted-uploader
-```
-
-### iOS
-
-Add the following to your `Podfile`:
-
-```ruby
-pod 'LevinEncryptedUploader', :path => '../node_modules/react-native-levin-encrypted-uploader'
-```
-
-Then run:
-
-```bash
-cd ios && pod install
-```
-
-### Android
-
-No additional setup required for Android.
+- 🔒 Mandatory encryption for all uploads (no way around it!)
+- 📱 Background uploads on iOS and Android
+- 🚀 Streaming encryption (no temporary files needed)
+- 📊 Progress tracking
+- 🎯 Simple API
 
 ## Usage
 
 ```typescript
-import LevinEncryptedUploader from 'react-native-levin-encrypted-uploader';
+import { startUpload } from 'react-native-levin-encrypted-uploader';
 
-// Get file info
-const fileInfo = await LevinEncryptedUploader.getFileInfo('file://path/to/file');
-
-// Start an upload
-const uploadId = await LevinEncryptedUploader.startUpload({
-  url: 'https://example.com/upload',
-  path: 'file://path/to/file',
+// You MUST provide encryption parameters - no way around it!
+const uploadId = await startUpload({
+  url: 'https://your-upload-endpoint.com/upload',
+  path: '/path/to/your/file.mp4',
   method: 'POST',
   headers: {
-    'Authorization': 'Bearer token'
+    Authorization: 'Bearer your-token',
   },
   encryption: {
-    key: 'base64-encoded-key',
-    nonce: 'base64-encoded-nonce'
-  }
-});
-
-// Start a download
-const downloadId = await LevinEncryptedUploader.startDownload({
-  url: 'https://example.com/file',
-  path: 'file://path/to/save',
-  method: 'GET',
-  headers: {
-    'Authorization': 'Bearer token'
-  }
-});
-
-// Download and decrypt a file
-const result = await LevinEncryptedUploader.downloadAndDecrypt({
-  url: 'https://example.com/encrypted-file',
-  destination: 'file://path/to/save',
-  headers: {
-    'Authorization': 'Bearer token'
+    key: 'your-base64-encoded-key', // Required!
+    nonce: 'your-base64-encoded-nonce', // Required!
   },
-  encryption: {
-    key: 'base64-encoded-key',
-    nonce: 'base64-encoded-nonce'
-  }
 });
 
-// Cancel an upload
-await LevinEncryptedUploader.cancelUpload(uploadId);
+// Listen for upload events
+const subscription = addEventListener(
+  'levin-encrypted-uploader-progress',
+  ({ progress }) => {
+    console.log(`Upload progress: ${progress}%`);
+  }
+);
 
-// Cancel a download
-await LevinEncryptedUploader.cancelDownload(downloadId);
+// Don't forget to clean up!
+subscription.remove();
 ```
 
 ## Events
 
-The module emits the following events:
+- `levin-encrypted-uploader-progress`: Fired during upload with progress percentage
+- `levin-encrypted-uploader-completed`: Fired when upload completes successfully
+- `levin-encrypted-uploader-error`: Fired when an error occurs
+- `levin-encrypted-uploader-cancelled`: Fired when upload is cancelled
+- `levin-encrypted-uploader-log`: Fired for debug logs
 
-- `levin-encrypted-uploader-progress`: Upload/download progress
-- `levin-encrypted-uploader-error`: Error occurred
-- `levin-encrypted-uploader-cancelled`: Upload/download cancelled
-- `levin-encrypted-uploader-completed`: Upload/download completed
-- `levin-encrypted-uploader-log`: Debug logs
+## Contributing
 
-Example:
-
-```typescript
-import { NativeEventEmitter, NativeModules } from 'react-native';
-
-const eventEmitter = new NativeEventEmitter(NativeModules.LevinEncryptedUploader);
-
-eventEmitter.addListener('levin-encrypted-uploader-progress', (data) => {
-  console.log('Progress:', data.progress);
-});
-
-eventEmitter.addListener('levin-encrypted-uploader-completed', (data) => {
-  console.log('Completed:', data);
-});
-
-eventEmitter.addListener('levin-encrypted-uploader-error', (data) => {
-  console.error('Error:', data.error);
-});
-```
-
-## API Reference
-
-### Methods
-
-#### getFileInfo(path: string): Promise<FileInfo>
-
-Get information about a file.
-
-```typescript
-interface FileInfo {
-  mimeType: string;
-  size: number;
-  exists: boolean;
-  name: string;
-  extension: string;
-}
-```
-
-#### startUpload(options: UploadOptions): Promise<string>
-
-Start a file upload.
-
-```typescript
-interface UploadOptions {
-  url: string;
-  path: string;
-  method?: string;
-  headers?: Record<string, string>;
-  encryption: {
-    key: string;
-    nonce: string;
-  };
-  customTransferId?: string;
-  appGroup?: string;
-}
-```
-
-#### cancelUpload(uploadId: string): Promise<boolean>
-
-Cancel an ongoing upload.
-
-#### startDownload(options: DownloadOptions): Promise<string>
-
-Start a file download.
-
-```typescript
-interface DownloadOptions {
-  url: string;
-  path: string;
-  method?: string;
-  headers?: Record<string, string>;
-  customTransferId?: string;
-  appGroup?: string;
-}
-```
-
-#### cancelDownload(downloadId: string): Promise<boolean>
-
-Cancel an ongoing download.
-
-#### downloadAndDecrypt(options: DownloadAndDecryptOptions): Promise<{ path: string }>
-
-Download and decrypt a file.
-
-```typescript
-interface DownloadAndDecryptOptions {
-  url: string;
-  destination: string;
-  headers?: Record<string, string>;
-  encryption: {
-    key: string;
-    nonce: string;
-  };
-}
-```
+Feel free to open issues and pull requests! Just remember this is a DIY project, so be patient with us. 😅
 
 ## License
 
 MIT
 
----
+## Acknowledgments
 
-Made with [create-react-native-library](https://github.com/callstack/react-native-builder-bob)
+- HEAVILY inspired by [VydiaRNFileUploader](https://github.com/Vydia/react-native-background-upload)
+- Built with ❤️ and a lot of trial and error

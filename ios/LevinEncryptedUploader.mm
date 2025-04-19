@@ -162,6 +162,9 @@ static LevinEncryptedUploader* staticEventEmitter = nil;
             return;
         }
 
+        NSLog(@"[LevinEncryptedUploader] Key data: %@", keyData);
+        NSLog(@"[LevinEncryptedUploader] Nonce data: %@", nonceData);
+
         NSURL *requestUrl = [NSURL URLWithString:uploadUrl];
         if (requestUrl == nil) {
             reject(@"E_INVALID_ARGUMENT", @"URL not compliant with RFC 2396", nil);
@@ -212,6 +215,7 @@ static LevinEncryptedUploader* staticEventEmitter = nil;
 
         // Create encrypted stream
         NSInputStream *encryptedStream = [self encryptedInputStreamFromFile:fileURI key:keyData nonce:nonceData];
+        NSLog(@"[LevinEncryptedUploader] Encrypted stream: %@", encryptedStream);
         if (!encryptedStream) {
             reject(@"E_STREAM_ERROR", @"Failed to create encrypted input stream", nil);
             return;
@@ -223,6 +227,7 @@ static LevinEncryptedUploader* staticEventEmitter = nil;
         NSURLSessionDataTask *uploadTask = [[self urlSession:appGroup] uploadTaskWithStreamedRequest:request];
         NSString *taskId = customTransferId ? customTransferId : [NSString stringWithFormat:@"%i", thisUploadId];
         uploadTask.taskDescription = taskId;
+        
         
         [[self uploadTasks] setObject:uploadTask forKey:taskId];
         [[self uploadStreams] setObject:encryptedStream forKey:taskId];
