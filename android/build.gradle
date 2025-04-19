@@ -112,7 +112,7 @@ dependencies {
   implementation "androidx.core:core-ktx:1.0.1"
   implementation 'com.facebook.react:react-native:+'
   implementation "org.jetbrains.kotlin:$_kotlinStdlib:$_kotlinVersion"
-  implementation 'com.github.tristanjakobi:android-upload-service-encrypted:1.0.0'
+  implementation 'com.github.tristanjakobi:android-upload-service-encrypted:Tag'
   implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.0.0'
   implementation 'com.google.crypto.tink:tink-android:1.7.0'
   implementation 'androidx.work:work-runtime-ktx:2.8.1'
