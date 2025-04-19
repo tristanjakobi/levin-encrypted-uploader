@@ -20,6 +20,15 @@ import net.gotev.uploadservice.protocols.binary.BinaryUploadRequest
 import okhttp3.OkHttpClient
 import java.io.File
 import java.util.concurrent.TimeUnit
+import java.util.UUID
+import java.net.URL
+import java.util.concurrent.Executors
+import javax.crypto.Cipher
+import javax.crypto.CipherInputStream
+import javax.crypto.CipherOutputStream
+import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.SecretKeySpec
+import java.util.Base64
 
 @ReactModule(name = LevinEncryptedUploaderModule.NAME)
 class LevinEncryptedUploaderModule(reactContext: ReactApplicationContext) :
@@ -29,6 +38,8 @@ class LevinEncryptedUploaderModule(reactContext: ReactApplicationContext) :
     private var notificationChannelID = "BackgroundUploadChannel"
     private var isGlobalRequestObserver = false
     private val eventEmitter = reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+    private val executor = Executors.newSingleThreadExecutor()
+    private val downloadTasks = mutableMapOf<String, Any>()
 
     override fun getName(): String {
         return NAME
@@ -116,6 +127,124 @@ class LevinEncryptedUploaderModule(reactContext: ReactApplicationContext) :
         } catch (e: Exception) {
             Log.e(TAG, "Error cancelling upload", e)
             promise.reject("E_CANCEL_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun startDownload(options: ReadableMap, promise: Promise) {
+        try {
+            val url = options.getString("url") ?: throw IllegalArgumentException("URL is required")
+            val path = options.getString("path") ?: throw IllegalArgumentException("Path is required")
+            val method = options.getString("method") ?: "GET"
+            val headers = options.getMap("headers")
+            val customTransferId = options.getString("customTransferId")
+            val appGroup = options.getString("appGroup")
+
+            val taskId = customTransferId ?: UUID.randomUUID().toString()
+
+            executor.execute {
+                try {
+                    val connection = URL(url).openConnection()
+                    connection.requestMethod = method
+
+                    headers?.let {
+                        val iterator = it.keySetIterator()
+                        while (iterator.hasNextKey()) {
+                            val key = iterator.nextKey()
+                            connection.setRequestProperty(key, it.getString(key))
+                        }
+                    }
+
+                    val responseCode = (connection as java.net.HttpURLConnection).responseCode
+                    if (responseCode in 200..299) {
+                        val file = File(path)
+                        file.parentFile?.mkdirs()
+                        connection.inputStream.use { input ->
+                            file.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                        promise.resolve(taskId)
+                    } else {
+                        throw Exception("Download failed with status code: $responseCode")
+                    }
+                } catch (e: Exception) {
+                    promise.reject("E_DOWNLOAD_ERROR", e.message, e)
+                }
+            }
+        } catch (e: Exception) {
+            promise.reject("E_DOWNLOAD_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun cancelDownload(downloadId: String, promise: Promise) {
+        try {
+            val task = downloadTasks[downloadId]
+            if (task != null) {
+                // TODO: Implement cancellation logic
+                downloadTasks.remove(downloadId)
+                promise.resolve(true)
+            } else {
+                promise.reject("E_INVALID_ARGUMENT", "Invalid download ID")
+            }
+        } catch (e: Exception) {
+            promise.reject("E_CANCEL_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun downloadAndDecrypt(options: ReadableMap, promise: Promise) {
+        try {
+            val url = options.getString("url") ?: throw IllegalArgumentException("URL is required")
+            val destination = options.getString("destination") ?: throw IllegalArgumentException("Destination is required")
+            val headers = options.getMap("headers")
+            val encryption = options.getMap("encryption") ?: throw IllegalArgumentException("Encryption options are required")
+            val key = encryption.getString("key") ?: throw IllegalArgumentException("Encryption key is required")
+            val nonce = encryption.getString("nonce") ?: throw IllegalArgumentException("Encryption nonce is required")
+
+            executor.execute {
+                try {
+                    val connection = URL(url).openConnection()
+                    connection.requestMethod = "GET"
+
+                    headers?.let {
+                        val iterator = it.keySetIterator()
+                        while (iterator.hasNextKey()) {
+                            val key = iterator.nextKey()
+                            connection.setRequestProperty(key, it.getString(key))
+                        }
+                    }
+
+                    val responseCode = (connection as java.net.HttpURLConnection).responseCode
+                    if (responseCode in 200..299) {
+                        val file = File(destination)
+                        file.parentFile?.mkdirs()
+
+                        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                        val keySpec = SecretKeySpec(Base64.getDecoder().decode(key), "AES")
+                        val ivSpec = IvParameterSpec(Base64.getDecoder().decode(nonce))
+                        cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec)
+
+                        connection.inputStream.use { input ->
+                            CipherOutputStream(file.outputStream(), cipher).use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+
+                        val result = Arguments.createMap().apply {
+                            putString("path", destination)
+                        }
+                        promise.resolve(result)
+                    } else {
+                        throw Exception("Download failed with status code: $responseCode")
+                    }
+                } catch (e: Exception) {
+                    promise.reject("E_DOWNLOAD_ERROR", e.message, e)
+                }
+            }
+        } catch (e: Exception) {
+            promise.reject("E_DOWNLOAD_ERROR", e.message, e)
         }
     }
 
