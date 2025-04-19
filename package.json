@@ -1,6 +1,6 @@
 {
   "name": "react-native-levin-encrypted-uploader",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "A DIY React Native file uploader with mandatory encryption, inspired by the VydiaRNFileUploader. Warning: This is very much a work in progress - use at your own risk! 🚧",
   "source": "./src/index.tsx",
   "main": "./lib/module/index.js",
