@@ -567,8 +567,11 @@ didCompleteWithError:(NSError *)error {
     }
     
     // Clean up task references
-    [self.uploadTasks removeObjectForKey:taskId];
-    [self.downloadTasks removeObjectForKey:taskId];
+    if ([task isKindOfClass:[NSURLSessionUploadTask class]]) {
+        [self.uploadTasks removeObjectForKey:taskId];
+    } else if ([task isKindOfClass:[NSURLSessionDownloadTask class]]) {
+        [self.downloadTasks removeObjectForKey:taskId];
+    }
 }
 
 - (void)URLSession:(NSURLSession *)session
