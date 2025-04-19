@@ -3,18 +3,17 @@
 @implementation LevinEncryptedUploader
 
 static NSString *BACKGROUND_SESSION_ID = @"levin-encrypted-uploader";
-static int uploadId = 0;
 static LevinEncryptedUploader* staticEventEmitter = nil;
-
-static NSMutableDictionary *_uploadTasks = nil;
-static NSMutableDictionary *_uploadStreams = nil;
-static NSMutableDictionary *_downloadTasks = nil;
 
 - (instancetype)init {
     self = [super init];
     if (self) {
         staticEventEmitter = self;
         _responsesData = [NSMutableDictionary dictionary];
+        _uploadTasks = [NSMutableDictionary dictionary];
+        _uploadStreams = [NSMutableDictionary dictionary];
+        _downloadTasks = [NSMutableDictionary dictionary];
+        _uploadId = 0;
     }
     return self;
 }
@@ -25,23 +24,14 @@ static NSMutableDictionary *_downloadTasks = nil;
 }
 
 - (NSMutableDictionary *)uploadTasks {
-    if (_uploadTasks == nil) {
-        _uploadTasks = [NSMutableDictionary dictionary];
-    }
     return _uploadTasks;
 }
 
 - (NSMutableDictionary *)uploadStreams {
-    if (_uploadStreams == nil) {
-        _uploadStreams = [NSMutableDictionary dictionary];
-    }
     return _uploadStreams;
 }
 
 - (NSMutableDictionary *)downloadTasks {
-    if (_downloadTasks == nil) {
-        _downloadTasks = [NSMutableDictionary dictionary];
-    }
     return _downloadTasks;
 }
 
@@ -75,11 +65,21 @@ static NSMutableDictionary *_downloadTasks = nil;
         if (error.userInfo) {
             logData[@"errorInfo"] = error.userInfo;
         }
+        // Add more detailed error information
+        logData[@"errorCode"] = @(error.code);
+        logData[@"errorDomain"] = error.domain;
     }
     
     if (params) {
         logData[@"params"] = params;
     }
+    
+    // Log to console with clear formatting
+    NSString *logMessage = [NSString stringWithFormat:@"[%@][%@] %@", level, module, message];
+    if (error) {
+        logMessage = [logMessage stringByAppendingFormat:@" - Error: %@ (Code: %ld)", error.localizedDescription, (long)error.code];
+    }
+    NSLog(@"%@", logMessage);
     
     [self _sendEventWithName:@"levin-encrypted-uploader-log" body:logData];
 }
@@ -129,7 +129,7 @@ static NSMutableDictionary *_downloadTasks = nil;
     @try {
         int thisUploadId;
         @synchronized(self.class) {
-            thisUploadId = uploadId++;
+            thisUploadId = _uploadId++;
         }
 
         // Extract values from the typed options
@@ -462,14 +462,29 @@ static NSMutableDictionary *_downloadTasks = nil;
               task:(NSURLSessionTask *)task
 didCompleteWithError:(NSError *)error {
     NSString *taskId = task.taskDescription;
-    NSLog(@"[LevinEncryptedUploader] Task completed - ID: %@, error: %@", taskId, error);
+    [self sendLog:@"INFO" 
+           module:@"Uploader" 
+          message:[NSString stringWithFormat:@"Task completed - ID: %@", taskId] 
+            error:error 
+            params:nil];
     
-    if (!taskId) return;
+    if (!taskId) {
+        [self sendLog:@"ERROR" 
+               module:@"Uploader" 
+              message:@"Task completed without ID" 
+                error:nil 
+                params:nil];
+        return;
+    }
     
     // Handle upload stream cleanup
     NSInputStream *stream = self.uploadStreams[taskId];
     if (stream) {
-        NSLog(@"[LevinEncryptedUploader] Closing upload stream for task: %@", taskId);
+        [self sendLog:@"DEBUG" 
+               module:@"Uploader" 
+              message:[NSString stringWithFormat:@"Closing upload stream for task: %@", taskId] 
+                error:nil 
+                params:nil];
         [stream close];
         [self.uploadStreams removeObjectForKey:taskId];
     }
@@ -482,22 +497,39 @@ didCompleteWithError:(NSError *)error {
         NSHTTPURLResponse *response = (NSHTTPURLResponse *)uploadTask.response;
         
         if (response != nil) {
-            NSLog(@"[LevinEncryptedUploader] Response status code: %ld", (long)response.statusCode);
+            [self sendLog:@"INFO" 
+                   module:@"Uploader" 
+                  message:[NSString stringWithFormat:@"Response status code: %ld", (long)response.statusCode] 
+                    error:nil 
+                    params:@{@"headers": [response allHeaderFields]}];
             [data setObject:[NSNumber numberWithInteger:response.statusCode] forKey:@"responseCode"];
-            
-            // Log all response headers
-            NSDictionary *headers = [response allHeaderFields];
-            NSLog(@"[LevinEncryptedUploader] Response headers: %@", headers);
         }
         
         NSMutableData *responseData = _responsesData[@(task.taskIdentifier)];
         if (responseData) {
             [_responsesData removeObjectForKey:@(task.taskIdentifier)];
             NSString *response = [[NSString alloc] initWithData:responseData encoding:NSUTF8StringEncoding];
-            NSLog(@"[LevinEncryptedUploader] Response body: %@", response);
-            [data setObject:response forKey:@"responseBody"];
+            if (response) {
+                [self sendLog:@"DEBUG" 
+                       module:@"Uploader" 
+                      message:[NSString stringWithFormat:@"Response body: %@", response] 
+                        error:nil 
+                        params:nil];
+                [data setObject:response forKey:@"responseBody"];
+            } else {
+                [self sendLog:@"ERROR" 
+                       module:@"Uploader" 
+                      message:@"Failed to decode response data" 
+                        error:nil 
+                        params:@{@"dataLength": @(responseData.length)}];
+                [data setObject:[NSNull null] forKey:@"responseBody"];
+            }
         } else {
-            NSLog(@"[LevinEncryptedUploader] No response data received");
+            [self sendLog:@"WARN" 
+                   module:@"Uploader" 
+                  message:@"No response data received" 
+                    error:nil 
+                    params:nil];
             [data setObject:[NSNull null] forKey:@"responseBody"];
         }
     }
@@ -506,22 +538,37 @@ didCompleteWithError:(NSError *)error {
     if ([task isKindOfClass:[NSURLSessionDownloadTask class]]) {
         NSHTTPURLResponse *response = (NSHTTPURLResponse *)task.response;
         if (response != nil) {
-            NSLog(@"[LevinEncryptedUploader] Download response status code: %ld", (long)response.statusCode);
+            [self sendLog:@"INFO" 
+                   module:@"Uploader" 
+                  message:[NSString stringWithFormat:@"Download response status code: %ld", (long)response.statusCode] 
+                    error:nil 
+                    params:nil];
             [data setObject:[NSNumber numberWithInteger:response.statusCode] forKey:@"responseCode"];
         }
     }
 
     if (error == nil) {
-        NSLog(@"[LevinEncryptedUploader] Upload completed successfully");
+        [self sendLog:@"INFO" 
+               module:@"Uploader" 
+              message:@"Upload completed successfully" 
+                error:nil 
+                params:data];
         [self _sendEventWithName:@"levin-encrypted-uploader-completed" body:data];
     } else {
-        NSLog(@"[LevinEncryptedUploader] Upload failed with error: %@", error);
+        [self sendLog:@"ERROR" 
+               module:@"Uploader" 
+              message:@"Upload failed" 
+                error:error 
+                params:data];
         [data setObject:error.localizedDescription forKey:@"error"];
         if (error.code == NSURLErrorCancelled) {
-            NSLog(@"[LevinEncryptedUploader] Upload was cancelled");
+            [self sendLog:@"INFO" 
+                   module:@"Uploader" 
+                  message:@"Upload was cancelled" 
+                    error:nil 
+                    params:data];
             [self _sendEventWithName:@"levin-encrypted-uploader-cancelled" body:data];
         } else {
-            NSLog(@"[LevinEncryptedUploader] Upload failed with error: %@", error);
             [self _sendEventWithName:@"levin-encrypted-uploader-error" body:data];
         }
     }

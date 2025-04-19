@@ -12,10 +12,14 @@
 @interface LevinEncryptedUploader : RCTEventEmitter <NativeLevinEncryptedUploaderSpec, NSURLSessionTaskDelegate, NSURLSessionDataDelegate, NSURLSessionDownloadDelegate>
 {
   NSMutableDictionary *_responsesData;
+  NSMutableDictionary *_uploadTasks;
+  NSMutableDictionary *_uploadStreams;
+  NSMutableDictionary *_downloadTasks;
+  int _uploadId;
 }
 @property (nonatomic, strong) NSURLSession *session;
+@property (nonatomic, strong) NSMutableDictionary *downloadTasks;
 - (NSMutableDictionary *)uploadTasks;
 - (NSMutableDictionary *)uploadStreams;
-- (NSMutableDictionary *)downloadTasks;
 @end
 
