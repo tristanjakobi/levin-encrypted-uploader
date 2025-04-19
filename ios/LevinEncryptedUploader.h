@@ -19,7 +19,7 @@
 }
 @property (nonatomic, strong) NSURLSession *session;
 @property (nonatomic, strong) NSMutableDictionary *downloadTasks;
-- (NSMutableDictionary *)uploadTasks;
-- (NSMutableDictionary *)uploadStreams;
+@property (nonatomic, strong) NSMutableDictionary *uploadStreams;
+@property (nonatomic, strong) NSMutableDictionary *uploadTasks;
 @end
 
